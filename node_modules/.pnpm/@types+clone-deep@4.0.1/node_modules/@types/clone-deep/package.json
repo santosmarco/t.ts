@@ -1,0 +1,24 @@
+{
+    "name": "@types/clone-deep",
+    "version": "4.0.1",
+    "description": "TypeScript definitions for clone-deep",
+    "license": "MIT",
+    "contributors": [
+        {
+            "name": "Tanfonto",
+            "url": "https://github.com/tanfonto",
+            "githubUsername": "tanfonto"
+        }
+    ],
+    "main": "",
+    "types": "index",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/clone-deep"
+    },
+    "scripts": {},
+    "dependencies": {},
+    "typesPublisherContentHash": "c10ea0f8b19a82b46680f3c5dfdf8b83befb9c63ce946d1997c240ce0c925d80",
+    "typeScriptVersion": "2.7"
+}
