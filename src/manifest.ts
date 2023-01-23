@@ -22,6 +22,10 @@ export interface TManifest<O, I = O> extends Descriptive {
     readonly in?: readonly DescriptiveWithValue<I>[];
     readonly out?: readonly DescriptiveWithValue<O>[];
   };
+  readonly tags?: readonly DescriptiveWithValue<string>[];
+  readonly notes?: readonly DescriptiveWithValue<string>[];
+  readonly unit?: DescriptiveWithValue<string>;
+  readonly meta?: Readonly<Record<string, unknown>>;
 }
 
 export type TRetrievableManifest<D extends AnyBrandedTDef> = D["$Manifest"] & {

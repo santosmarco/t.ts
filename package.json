@@ -11,16 +11,11 @@
   "license": "ISC",
   "devDependencies": {
     "@types/clone-deep": "^4.0.1",
+    "@types/node": "^18.11.18",
     "prettier": "^2.8.3",
     "ts-toolbelt": "^9.6.0",
     "tsx": "^3.12.2",
     "type-fest": "^3.5.3",
     "typescript": "^4.9.4"
-  },
-  "dependencies": {
-    "@types/merge-deep": "^3.0.0",
-    "clone-deep": "^4.0.1",
-    "immutable": "^4.2.2",
-    "merge-deep": "^3.0.3"
   }
 }
