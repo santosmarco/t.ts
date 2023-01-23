@@ -4,10 +4,12 @@ export const ValueKind = {
   Arguments: "arguments",
   Array: "Array",
   ArrayIterator: "Array Iterator",
+  BigInt: "bigint",
   Boolean: "boolean",
   Buffer: "Buffer",
   Date: "Date",
   Error: "Error",
+  False: "false",
   Float32Array: "Float32Array",
   Float64Array: "Float64Array",
   Function: "function",
@@ -29,12 +31,14 @@ export const ValueKind = {
   String: "string",
   StringIterator: "String Iterator",
   Symbol: "symbol",
+  True: "true",
   Uint16Array: "Uint16Array",
   Uint32Array: "Uint32Array",
   Uint8Array: "Uint8Array",
   Uint8ClampedArray: "Uint8ClampedArray",
   Undefined: "undefined",
   Unknown: "unknown",
+  Void: "void",
   WeakMap: "WeakMap",
   WeakSet: "WeakSet",
 } as const;
@@ -42,13 +46,18 @@ export const ValueKind = {
 export type ValueKind = typeof ValueKind[keyof typeof ValueKind];
 
 export type ValueKindMap<T extends ValueKind> = {
+  "Array Iterator": IterableIterator<unknown>;
+  "Map Iterator": IterableIterator<[unknown, unknown]>;
+  "Set Iterator": IterableIterator<unknown>;
+  "String Iterator": IterableIterator<string>;
   arguments: IArguments;
   Array: Array<unknown>;
-  "Array Iterator": IterableIterator<unknown>;
+  bigint: bigint;
   boolean: boolean;
   Buffer: Buffer;
   Date: Date;
   Error: Error;
+  false: false;
   Float32Array: Float32Array;
   Float64Array: Float64Array;
   function: Function;
@@ -58,7 +67,6 @@ export type ValueKindMap<T extends ValueKind> = {
   Int32Array: Int32Array;
   Int8Array: Int8Array;
   Map: Map<unknown, unknown>;
-  "Map Iterator": IterableIterator<[unknown, unknown]>;
   NaN: number;
   null: null;
   number: number;
@@ -66,16 +74,16 @@ export type ValueKindMap<T extends ValueKind> = {
   Promise: Promise<unknown>;
   RegExp: RegExp;
   Set: Set<unknown>;
-  "Set Iterator": IterableIterator<unknown>;
   string: string;
-  "String Iterator": IterableIterator<string>;
   symbol: symbol;
+  true: true;
   Uint16Array: Uint16Array;
   Uint32Array: Uint32Array;
   Uint8Array: Uint8Array;
   Uint8ClampedArray: Uint8ClampedArray;
   undefined: undefined;
   unknown: unknown;
+  void: void;
   WeakMap: WeakMap<object, unknown>;
   WeakSet: WeakSet<object>;
 }[T];
@@ -90,6 +98,7 @@ export function kindOf(x: unknown) {
   if (type === "number") {
     return Number.isNaN(x) ? ValueKind.NaN : ValueKind.Number;
   }
+  if (type === "bigint") return ValueKind.BigInt;
   if (type === "symbol") return ValueKind.Symbol;
   if (type === "function") {
     return isGeneratorFn(x) ? ValueKind.GeneratorFunction : ValueKind.Function;

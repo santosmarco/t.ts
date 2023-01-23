@@ -1,7 +1,10 @@
 import type * as tf from "type-fest";
 import type { AnyBrandedTDef, CtorTDef, MakeTDef, RuntimeTDef } from "./def";
+import { TGlobal } from "./global";
+import { TIssueKind } from "./issues";
 import type { DescriptiveWithValue, TRetrievableManifest } from "./manifest";
-import type { TCreateOptions } from "./options";
+import type { TCreateOptions, TOptions, TParseOptions } from "./options";
+import { TParseContext, TParseResult, TParseResultAsync, TParseResultSync } from "./parse";
 import { ValueKind, cloneDeep, isKindOf } from "./utils";
 
 export const TTypeName = {
@@ -52,6 +55,14 @@ export abstract class TType<D extends AnyBrandedTDef> {
     this._def = cloneDeep({ typeName, props, options, manifest });
 
     this.clone = this.clone.bind(this);
+    // Parsing
+    this._parse = this._parse.bind(this);
+    this._parseSync = this._parseSync.bind(this);
+    this._parseAsync = this._parseAsync.bind(this);
+    this.safeParse = this.safeParse.bind(this);
+    this.parse = this.parse.bind(this);
+    this.safeParseAsync = this.safeParseAsync.bind(this);
+    this.parseAsync = this.parseAsync.bind(this);
     // Utils
     this.optional = this.optional.bind(this);
     this.nullable = this.nullable.bind(this);
@@ -99,6 +110,54 @@ export abstract class TType<D extends AnyBrandedTDef> {
 
   clone(): this {
     return this._construct();
+  }
+
+  /* ---------------------------------------------------------------------------------------------------------------- */
+
+  abstract _parse(ctx: TParseContext): TParseResult<this["$O"]>;
+
+  _parseSync(ctx: TParseContext): TParseResultSync<this["$O"]> {
+    const result = this._parse(ctx);
+
+    if (isKindOf(result, ValueKind.Promise)) {
+      throw new Error("Synchronous parse encountered Promise. Use `.parseAsync()`/`.safeParseAsync()` instead.");
+    }
+
+    return result;
+  }
+
+  _parseAsync(ctx: TParseContext): TParseResultAsync<this["$O"]> {
+    return Promise.resolve(this._parse(ctx));
+  }
+
+  safeParse(data: unknown, options?: TParseOptions): TParseResultSync<this["$O"]> {
+    const result = this._parseSync(TParseContext.createSync(this, data, options));
+    return result;
+  }
+
+  parse(data: unknown, options?: TParseOptions): this["$O"] {
+    const result = this.safeParse(data, options);
+
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    return result.data;
+  }
+
+  safeParseAsync(data: unknown, options?: TParseOptions): TParseResultAsync<this["$O"]> {
+    const result = this._parseAsync(TParseContext.createAsync(this, data, options));
+    return result;
+  }
+
+  async parseAsync(data: unknown, options?: TParseOptions): Promise<this["$O"]> {
+    const result = await this.safeParseAsync(data, options);
+
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    return result.data;
   }
 
   /* ---------------------------------------------------------------------------------------------------------------- */
@@ -260,6 +319,10 @@ export type TAnyDef = MakeTDef<{
 }>;
 
 export class TAny extends TType<TAnyDef> {
+  _parse(ctx: TParseContext) {
+    return ctx.result(ctx.data);
+  }
+
   static create(options?: TCreateOptions): TAny {
     return new TAny({
       typeName: TTypeName.Any,
@@ -278,6 +341,10 @@ export type TUnknownDef = MakeTDef<{
 }>;
 
 export class TUnknown extends TType<TUnknownDef> {
+  _parse(ctx: TParseContext) {
+    return ctx.result(ctx.data);
+  }
+
   static create(options?: TCreateOptions): TUnknown {
     return new TUnknown({
       typeName: TTypeName.Unknown,
@@ -290,13 +357,20 @@ export class TUnknown extends TType<TUnknownDef> {
 /*                                                       TNever                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+export type TNeverOptions = TOptions<{ issueKinds: ["base.forbidden"] }>;
+
 export type TNeverDef = MakeTDef<{
   $Out: never;
   $TypeName: "TNever";
+  $Options: TNeverOptions;
 }>;
 
 export class TNever extends TType<TNeverDef> {
-  static create(options?: TCreateOptions): TNever {
+  _parse(ctx: TParseContext) {
+    return ctx.addIssue(TIssueKind.Base.Forbidden, this.options.messages?.[TIssueKind.Base.Forbidden]).abort();
+  }
+
+  static create(options?: TCreateOptions<TNeverOptions>): TNever {
     return new TNever({
       typeName: TTypeName.Never,
       options: { ...options },
@@ -314,6 +388,12 @@ export type TUndefinedDef = MakeTDef<{
 }>;
 
 export class TUndefined extends TType<TUndefinedDef> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.Undefined)
+      ? ctx.result(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Undefined }).abort();
+  }
+
   static create(options?: TCreateOptions): TUndefined {
     return new TUndefined({
       typeName: TTypeName.Undefined,
@@ -332,6 +412,12 @@ export type TVoidDef = MakeTDef<{
 }>;
 
 export class TVoid extends TType<TVoidDef> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.Undefined)
+      ? ctx.result(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Void }).abort();
+  }
+
   static create(options?: TCreateOptions): TVoid {
     return new TVoid({
       typeName: TTypeName.Void,
@@ -350,6 +436,12 @@ export type TNullDef = MakeTDef<{
 }>;
 
 export class TNull extends TType<TNullDef> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.Null)
+      ? ctx.result(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Null }).abort();
+  }
+
   static create(options?: TCreateOptions): TNull {
     return new TNull({
       typeName: TTypeName.Null,
@@ -372,6 +464,18 @@ export type TStringDef<Co extends TStringCoercion> = MakeTDef<{
 }>;
 
 export class TString<Co extends TStringCoercion = false> extends TType<TStringDef<Co>> {
+  _parse(ctx: TParseContext) {
+    if (this.props.coercion) {
+      ctx.setData(String(ctx.data));
+    }
+
+    if (!isKindOf(ctx.data, ValueKind.String)) {
+      return ctx.invalidType({ expected: ValueKind.String }).abort();
+    }
+
+    return ctx.result(ctx.data);
+  }
+
   coerce<C extends TStringCoercion = true>(value = true as C): TString<C> {
     return new TString<C>({
       ...this._def,
@@ -442,6 +546,12 @@ export type TNaNDef = MakeTDef<{
 }>;
 
 export class TNaN extends TType<TNaNDef> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.NaN)
+      ? ctx.result(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.NaN }).abort();
+  }
+
   static create(options?: TCreateOptions): TNaN {
     return new TNaN({
       typeName: TTypeName.NaN,
@@ -460,6 +570,14 @@ export type TBigIntDef = MakeTDef<{
 }>;
 
 export class TBigInt extends TType<TBigIntDef> {
+  _parse(ctx: TParseContext) {
+    if (!isKindOf(ctx.data, ValueKind.BigInt)) {
+      return ctx.invalidType({ expected: ValueKind.BigInt }).abort();
+    }
+
+    return ctx.result(ctx.data);
+  }
+
   static create(options?: TCreateOptions): TBigInt {
     return new TBigInt({
       typeName: TTypeName.BigInt,
@@ -478,6 +596,14 @@ export type TBooleanDef = MakeTDef<{
 }>;
 
 export class TBoolean extends TType<TBooleanDef> {
+  _parse(ctx: TParseContext) {
+    if (!isKindOf(ctx.data, ValueKind.Boolean)) {
+      return ctx.invalidType({ expected: ValueKind.Boolean }).abort();
+    }
+
+    return ctx.result(ctx.data);
+  }
+
   true(): TTrue {
     return TTrue.create(this.options);
   }
@@ -502,6 +628,10 @@ export type TTrueDef = MakeTDef<{
 }>;
 
 export class TTrue extends TType<TTrueDef> {
+  _parse(ctx: TParseContext) {
+    return ctx.data === true ? ctx.result<true>(ctx.data) : ctx.invalidType({ expected: ValueKind.True }).abort();
+  }
+
   static create(options?: TCreateOptions): TTrue {
     return new TTrue({
       typeName: TTypeName.True,
@@ -518,6 +648,10 @@ export type TFalseDef = MakeTDef<{
 }>;
 
 export class TFalse extends TType<TFalseDef> {
+  _parse(ctx: TParseContext) {
+    return ctx.data === false ? ctx.result<false>(ctx.data) : ctx.invalidType({ expected: ValueKind.False }).abort();
+  }
+
   static create(options?: TCreateOptions): TFalse {
     return new TFalse({
       typeName: TTypeName.False,
@@ -536,6 +670,14 @@ export type TDateDef = MakeTDef<{
 }>;
 
 export class TDate extends TType<TDateDef> {
+  _parse(ctx: TParseContext) {
+    if (!isKindOf(ctx.data, ValueKind.Date)) {
+      return ctx.invalidType({ expected: ValueKind.Date }).abort();
+    }
+
+    return ctx.result(ctx.data);
+  }
+
   static create(options?: TCreateOptions): TDate {
     return new TDate({
       typeName: TTypeName.Date,
@@ -554,6 +696,12 @@ export type TSymbolDef = MakeTDef<{
 }>;
 
 export class TSymbol extends TType<TSymbolDef> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.Symbol)
+      ? ctx.result(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Symbol }).abort();
+  }
+
   static create(options?: TCreateOptions): TSymbol {
     return new TSymbol({
       typeName: TTypeName.Symbol,
@@ -698,6 +846,14 @@ export type TBufferDef = MakeTDef<{
 }>;
 
 export class TBuffer extends TType<TBufferDef> {
+  _parse(ctx: TParseContext) {
+    if (!isKindOf(ctx.data, ValueKind.Buffer)) {
+      return ctx.invalidType({ expected: ValueKind.Buffer }).abort();
+    }
+
+    return ctx.result(ctx.data);
+  }
+
   static create(options?: TCreateOptions): TBuffer {
     return new TBuffer({
       typeName: TTypeName.Buffer,
@@ -718,6 +874,18 @@ export type TPromiseDef<T extends AnyTType> = MakeTDef<{
 }>;
 
 export class TPromise<T extends AnyTType> extends TType<TPromiseDef<T>> {
+  _parse(ctx: TParseContext) {
+    if (!isKindOf(ctx.data, ValueKind.Promise) && !ctx.common.async) {
+      return ctx.invalidType({ expected: ValueKind.Promise }).abort();
+    }
+
+    return ctx.result(
+      (isKindOf(ctx.data, ValueKind.Promise) ? ctx.data : Promise.resolve(ctx.data)).then((awaited) =>
+        this.underlying.parseAsync(awaited, ctx.common)
+      )
+    );
+  }
+
   get underlying(): T {
     return this.props.underlying;
   }
@@ -757,6 +925,12 @@ export type TOptionalDef<T extends AnyTType> = MakeTDef<{
 }>;
 
 export class TOptional<T extends AnyTType> extends TType<TOptionalDef<T>> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.Undefined)
+      ? ctx.result(ctx.data)
+      : this.underlying._parse(ctx.child(this.underlying, ctx.data));
+  }
+
   get underlying(): T {
     return this.props.underlying;
   }
@@ -796,6 +970,12 @@ export type TNullableDef<T extends AnyTType> = MakeTDef<{
 }>;
 
 export class TNullable<T extends AnyTType> extends TType<TNullableDef<T>> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.Null)
+      ? ctx.result(ctx.data)
+      : this.underlying._parse(ctx.child(this.underlying, ctx.data));
+  }
+
   get underlying(): T {
     return this.props.underlying;
   }
@@ -835,6 +1015,12 @@ export type TDefinedDef<T extends AnyTType> = MakeTDef<{
 }>;
 
 export class TDefined<T extends AnyTType> extends TType<TDefinedDef<T>> {
+  _parse(ctx: TParseContext) {
+    return isKindOf(ctx.data, ValueKind.Undefined)
+      ? ctx.addIssue(TIssueKind.Base.Required, this.options.messages?.[TIssueKind.Base.Required]).abort()
+      : this.underlying._parse(ctx.child(this.underlying, ctx.data));
+  }
+
   get underlying(): T {
     return this.props.underlying;
   }
@@ -905,6 +1091,10 @@ export type TLazyDef<T extends AnyTType> = MakeTDef<{
 }>;
 
 export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> {
+  _parse(ctx: TParseContext) {
+    return this.underlying._parse(ctx.child(this.underlying, ctx.data));
+  }
+
   get underlying(): T {
     return this.props.getUnderlying();
   }
@@ -938,6 +1128,12 @@ export type TDefaultDef<T extends AnyTType, D extends Exclude<InputOf<T>, undefi
 }>;
 
 export class TDefault<T extends AnyTType, D extends Exclude<InputOf<T>, undefined>> extends TType<TDefaultDef<T, D>> {
+  _parse(ctx: TParseContext) {
+    return this.underlying._parse(
+      ctx.child(this.underlying, isKindOf(ctx.data, ValueKind.Undefined) ? this.defaultValue : ctx.data)
+    );
+  }
+
   get underlying(): T {
     return this.props.underlying;
   }
@@ -1185,6 +1381,8 @@ export const undefinedType = TUndefined.create;
 export const unionType = TUnion.create;
 export const unknownType = TUnknown.create;
 export const voidType = TVoid.create;
+
+export const global = () => TGlobal;
 
 export {
   anyType as any,
