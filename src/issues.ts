@@ -1,5 +1,7 @@
 import type * as tf from "type-fest";
 import type { TCheck, TCheckBase } from "./checks";
+import { type TError } from "./error";
+import { type TLiteralValue } from "./types";
 import type { GetNestedValues } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -11,6 +13,9 @@ export const TIssueKind = {
     Required: "base.required",
     InvalidType: "base.invalid_type",
     Forbidden: "base.forbidden",
+  },
+  Literal: {
+    Mismatch: "literal.mismatch",
   },
   Number: {
     Integer: "number.integer",
@@ -44,6 +49,7 @@ export const TIssueKind = {
     Range: "buffer.range",
   },
   Record: {
+    InvalidKey: "record.invalid_key",
     MinKeys: "record.min_keys",
     MaxKeys: "record.max_keys",
   },
@@ -92,6 +98,13 @@ export namespace TIssue {
   export type InvalidType = MakeTIssue<"base.invalid_type", { expected: string; received: string }>;
   export type Forbidden = MakeTIssue<"base.forbidden", { types?: string[] }>;
 
+  export namespace Literal {
+    export type Mismatch = MakeTIssue<
+      "literal.mismatch",
+      { expected: TLiteralValue; received: { value: TLiteralValue; type?: never } | { value?: never; type: string } }
+    >;
+  }
+
   export namespace Number {
     export type Integer = FromTCheck<"number.integer", TCheck.Integer>;
     export type Precision = FromTCheck<"number.precision", TCheck.Precision, { received: number }>;
@@ -132,6 +145,7 @@ export namespace TIssue {
   }
 
   export namespace Record {
+    export type InvalidKey = MakeTIssue<"record.invalid_key", { key: PropertyKey; error: TError }>;
     export type MinKeys = FromTCheck<"record.min_keys", TCheck.MinKeys, { received: number }>;
     export type MaxKeys = FromTCheck<"record.max_keys", TCheck.MaxKeys, { received: number }>;
   }
@@ -142,6 +156,8 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Required
   | TIssue.InvalidType
   | TIssue.Forbidden
+  // Literal
+  | TIssue.Literal.Mismatch
   // Number
   | TIssue.Number.Integer
   | TIssue.Number.Precision
@@ -170,6 +186,7 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Buffer.Length
   | TIssue.Buffer.Range
   // Record
+  | TIssue.Record.InvalidKey
   | TIssue.Record.MinKeys
   | TIssue.Record.MaxKeys,
   { readonly kind: K }

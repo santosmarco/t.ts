@@ -22,7 +22,7 @@ import {
   type TParseOptions,
 } from "./options";
 import { TParseContext, type TParseResultOf, type TParseResultSyncOf } from "./parse";
-import { ValueKind, assertNever, cloneDeep, debrand, isKindOf, tail, type AtLeastOne } from "./utils";
+import { ValueKind, assertNever, cloneDeep, debrand, isKindOf, tail, type AtLeastOne, kindOf } from "./utils";
 
 export const TTypeName = {
   Any: "TAny",
@@ -53,6 +53,7 @@ export const TTypeName = {
   Undefined: "TUndefined",
   Union: "TUnion",
   Unknown: "TUnknown",
+  Literal: "TLiteral",
   Void: "TVoid",
 } as const;
 
@@ -221,6 +222,10 @@ export abstract class TType<D extends AnyBrandedTDef> {
 
   array(): TArray<this> {
     return TArray.create(this, pickTransferrableOptions(this.options));
+  }
+
+  record(): TRecord<TString, this> {
+    return TRecord.create(this, pickTransferrableOptions(this.options));
   }
 
   promise(): TPromise<this> {
@@ -832,6 +837,59 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
     return this._removeChecks(TCheckKind.Finite);
   }
 
+  /* ---------------------------------------------------------------------------------------------------------------- */
+
+  get minValue(): number | undefined {
+    return filterChecks(this.checks, [TCheckKind.Min, TCheckKind.Range]).reduce<number | undefined>((min, check) => {
+      const compare = "min" in check ? check.min : check.value;
+      return min === undefined || compare > min ? compare : min;
+    }, undefined);
+  }
+
+  get maxValue(): number | undefined {
+    return filterChecks(this.checks, [TCheckKind.Max, TCheckKind.Range]).reduce<number | undefined>((max, check) => {
+      const compare = "max" in check ? check.max : check.value;
+      return max === undefined || compare < max ? compare : max;
+    }, undefined);
+  }
+
+  get multipleOf(): number | undefined {
+    return filterChecks(this.checks, [TCheckKind.Multiple]).reduce<number | undefined>(
+      (mult, check) => (mult ?? 1) * check.value,
+      undefined
+    );
+  }
+
+  get isInteger() {
+    return filterChecks(this.checks, [TCheckKind.Integer]).length > 0;
+  }
+
+  get isFloat() {
+    return filterChecks(this.checks, [TCheckKind.Precision]).length > 0;
+  }
+
+  get isPositive() {
+    return this.minValue === undefined || this.minValue > 0;
+  }
+
+  get isNegative() {
+    return this.maxValue === undefined || this.maxValue < 0;
+  }
+
+  get isPort() {
+    return filterChecks(this.checks, [TCheckKind.Port]).length > 0;
+  }
+
+  get isSafe() {
+    return filterChecks(this.checks, [TCheckKind.Safe]).length > 0;
+  }
+
+  get isFinite() {
+    return filterChecks(this.checks, [TCheckKind.Finite]).length > 0;
+  }
+
+  /* ---------------------------------------------------------------------------------------------------------------- */
+
   static create(options?: TOptions): TNumber {
     return new TNumber({
       typeName: TTypeName.Number,
@@ -1000,6 +1058,95 @@ export class TSymbol extends TType<TSymbolDef> {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                      TLiteral                                                      */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TLiteralValue = string | number | bigint | boolean | symbol | null | undefined;
+
+export type TLiteralOptions = TOptions<{ issueKinds: ["literal.mismatch"] }>;
+
+export type TLiteralDef<T extends TLiteralValue> = MakeTDef<{
+  $Out: T;
+  $TypeName: "TLiteral";
+  $Props: { readonly value: T };
+  $Options: TLiteralOptions;
+}>;
+
+export class TLiteral<T extends TLiteralValue> extends TType<TLiteralDef<T>> {
+  _parse(ctx: TParseContext<this>) {
+    const kindOfValue = kindOf(this.value);
+    const kindOfData = kindOf(ctx.data);
+
+    if (this.value !== ctx.data) {
+      return ctx
+        .addIssue(
+          {
+            kind: TIssueKind.Literal.Mismatch,
+            payload: {
+              expected: this.value,
+              received: kindOfValue === kindOfData ? { value: ctx.data as TLiteralValue } : { type: kindOfData },
+            },
+          },
+          this.options.messages[TIssueKind.Literal.Mismatch]
+        )
+        .return();
+    }
+
+    return ctx.return(ctx.data as T);
+  }
+
+  get value(): T {
+    return this.props.value;
+  }
+
+  static create<T extends TLiteralValue>(value: T, options?: TLiteralOptions): TLiteral<T> {
+    return new TLiteral({ typeName: TTypeName.Literal, props: { value }, options: processCreateOptions(options) });
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                        TEnum                                                       */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TEnumValues = AtLeastOne<string | number>;
+
+export type TEnumDef<T extends TEnumValues> = MakeTDef<{
+  $Out: T[number];
+  $TypeName: "TEnum";
+  $Props: { readonly values: T };
+}>;
+
+export class TEnum<T extends TEnumValues> extends TType<TEnumDef<T>> {
+  _parse(ctx: TParseContext<this>) {
+    const kindsOfValue = [...new Set(this.values.map((v) => kindOf(v)))];
+    const kindOfData = kindOf(ctx.data);
+
+    if (!this.values.includes(ctx.data)) {
+      return ctx
+        .addIssue(
+          {
+            kind: TIssueKind.Literal.Mismatch,
+            payload: {
+              expected: this.values,
+              received: kindOfValue === kindOfData ? { value: ctx.data as TLiteralValue } : { type: kindOfData },
+            },
+          },
+          this.options.messages[TIssueKind.Literal.Mismatch]
+        )
+        .return();
+    }
+  }
+
+  get values(): T {
+    return this.props.values;
+  }
+
+  static create<T extends TEnumValues>(values: T, options?: TOptions): TEnum<T> {
+    return new TEnum({ typeName: TTypeName.Enum, props: { values }, options: processCreateOptions(options) });
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TArray                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -1139,19 +1286,18 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     const result: Array<OutputOf<T>> = [];
 
     if (ctx.common.async) {
-      return Promise.all(entries.map(async ([i, v]) => element._parseAsync(ctx.child(element, v, [i])))).then(
-        (results) => {
-          for (const res of results) {
-            if (res.ok) {
-              result.push(res.data);
-            } else if (ctx.common.abortEarly) {
-              return ctx.return();
-            }
+      return Promise.all(
+        entries.map(async ([i, v]) => {
+          const parsed = await element._parseAsync(ctx.child(element, v, [i]));
+          if (parsed.ok) {
+            result.push(parsed.data);
+          } else if (ctx.common.abortEarly) {
+            return Promise.reject();
           }
-
-          return finalizeArray(ctx, result, postChecks);
-        }
-      );
+        })
+      )
+        .then(() => finalizeArray(ctx, result, postChecks))
+        .catch(() => ctx.return());
     }
 
     for (const [i, v] of entries) {
@@ -1359,19 +1505,18 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
     const result = new Set<OutputOf<T>>();
 
     if (ctx.common.async) {
-      return Promise.all(values.map(async (v, i) => element._parseAsync(ctx.child(element, v, [i])))).then(
-        (results) => {
-          for (const res of results) {
-            if (res.ok) {
-              result.add(res.data);
-            } else if (ctx.common.abortEarly) {
-              return ctx.return();
-            }
+      return Promise.all(
+        values.map(async (v, i) => {
+          const parsed = await element._parseAsync(ctx.child(element, v, [i]));
+          if (parsed.ok) {
+            result.add(parsed.data);
+          } else if (ctx.common.abortEarly) {
+            return Promise.reject();
           }
-
-          return ctx.return(result);
-        }
-      );
+        })
+      )
+        .then(() => ctx.return(result))
+        .catch(() => ctx.return());
     }
 
     for (const [i, v] of values.entries()) {
@@ -1587,21 +1732,176 @@ export class TBuffer extends TType<TBufferDef> {
 /*                                                       TRecord                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TRecordDef<
-  K extends TType<MakeTDef<tf.Merge<TDef, { $Out: PropertyKey; $In: PropertyKey }>>>,
-  V extends AnyTType
-> = MakeTDef<{
+export type TRecordKeysSchema = TType<MakeTDef<tf.Merge<TDef, { $Out: PropertyKey; $In: PropertyKey }>>>;
+
+export type TRecordOptions = TOptions<{ issueKinds: ["record.invalid_key"] }>;
+
+export type TRecordDef<K extends TRecordKeysSchema, V extends AnyTType> = MakeTDef<{
   $Out: Record<K["$O"], V["$O"]>;
   $In: Record<K["$I"], V["$I"]>;
   $TypeName: "TRecord";
-  $Checks: ReadonlyArray<TCheck.Min | TCheck.Max>;
-  $Props: { readonly key: K; readonly value: V };
+  $Checks: ReadonlyArray<TCheck.MinKeys | TCheck.MaxKeys>;
+  $Props: { readonly keys: K; readonly values: V };
+  $Options: TRecordOptions;
 }>;
 
-export class TRecord<
-  K extends TType<MakeTDef<tf.Merge<TDef, { $Out: PropertyKey; $In: PropertyKey }>>>,
-  V extends AnyTType
-> extends TType<TRecordDef<K, V>> {}
+function handleKeyTransformation(k: string | symbol) {
+  if (isKindOf(k, ValueKind.Symbol)) {
+    return k;
+  }
+
+  if (isKindOf(Number(k), ValueKind.NaN)) {
+    return k;
+  }
+
+  return Number(k);
+}
+
+export class TRecord<K extends TRecordKeysSchema, V extends AnyTType> extends TType<TRecordDef<K, V>> {
+  _parse(ctx: TParseContext<this>) {
+    if (!isKindOf(ctx.data, ValueKind.Object)) {
+      return ctx.invalidType({ expected: ValueKind.Object }).return();
+    }
+
+    const { keys, values } = this.props;
+    const entries = Reflect.ownKeys(ctx.data).map(
+      (k) => [handleKeyTransformation(k), (ctx.data as Record<string | symbol, unknown>)[k]] as const
+    );
+    const { length } = entries;
+
+    for (const check of this.checks) {
+      switch (check.kind) {
+        case TCheckKind.MinKeys:
+          if (!validateMin(length, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Record.MinKeys, payload: { ...sanitizeCheck(check), received: length } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+        case TCheckKind.MaxKeys:
+          if (!validateMax(length, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Record.MaxKeys, payload: { ...sanitizeCheck(check), received: length } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+
+        default:
+          assertNever(check);
+      }
+    }
+
+    const result: Record<PropertyKey, unknown> = {};
+
+    if (ctx.common.async) {
+      return Promise.all(
+        entries.map(async ([k, v]) => {
+          const [parsedKey, parsedValue] = await Promise.all([
+            keys._parseAsync(ctx.clone(keys, k)),
+            values._parseAsync(ctx.child(values, v, [k])),
+          ]);
+          if (!parsedKey.ok) {
+            ctx.addIssue(
+              { kind: TIssueKind.Record.InvalidKey, payload: { key: k, error: parsedKey.error } },
+              this.options.messages[TIssueKind.Record.InvalidKey]
+            );
+            if (ctx.common.abortEarly) {
+              return Promise.reject();
+            }
+          } else if (parsedValue.ok) {
+            result[parsedKey.data] = parsedValue.data;
+          } else if (ctx.common.abortEarly) {
+            return Promise.reject();
+          }
+        })
+      )
+        .then(() => ctx.return(result))
+        .catch(() => ctx.return());
+    }
+
+    for (const [k, v] of entries) {
+      const [parsedKey, parsedValue] = [
+        keys._parseSync(ctx.clone(keys, k)),
+        values._parseSync(ctx.child(values, v, [k])),
+      ];
+      if (!parsedKey.ok) {
+        ctx.addIssue(
+          { kind: TIssueKind.Record.InvalidKey, payload: { key: k, error: parsedKey.error } },
+          this.options.messages[TIssueKind.Record.InvalidKey]
+        );
+        if (ctx.common.abortEarly) {
+          return ctx.return();
+        }
+      } else if (parsedValue.ok) {
+        result[parsedKey.data] = parsedValue.data;
+      } else if (ctx.common.abortEarly) {
+        return ctx.return();
+      }
+    }
+
+    return ctx.return(result);
+  }
+
+  get keys(): K {
+    return this.props.keys;
+  }
+
+  get values(): V {
+    return this.props.values;
+  }
+
+  get entries(): [key: K, value: V] {
+    return [this.keys, this.values];
+  }
+
+  /* ---------------------------------------------------- Checks ---------------------------------------------------- */
+
+  minKeys(value: number, options?: { inclusive?: boolean; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.MinKeys,
+      value,
+      inclusive: options?.inclusive ?? true,
+      message: options?.message,
+    });
+  }
+
+  maxKeys(value: number, options?: { inclusive?: boolean; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.MaxKeys,
+      value,
+      inclusive: options?.inclusive ?? true,
+      message: options?.message,
+    });
+  }
+
+  static create<V extends AnyTType>(values: V, options?: TOptions): TRecord<TString, V>;
+  static create<K extends TRecordKeysSchema, V extends AnyTType>(keys: K, values: V, options?: TOptions): TRecord<K, V>;
+  static create<K extends TRecordKeysSchema, V extends AnyTType>(
+    keysOrValues: K | V,
+    valuesOrOptions?: V | TOptions,
+    maybeOptions?: TOptions
+  ) {
+    if (valuesOrOptions instanceof TType) {
+      return new TRecord({
+        typeName: TTypeName.Record,
+        props: { keys: keysOrValues, values: valuesOrOptions },
+        checks: [],
+        options: processCreateOptions(maybeOptions),
+      });
+    }
+
+    return new TRecord({
+      typeName: TTypeName.Record,
+      props: { keys: TString.create(), values: keysOrValues },
+      checks: [],
+      options: processCreateOptions(valuesOrOptions),
+    });
+  }
+}
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TPromise                                                      */
@@ -2114,13 +2414,17 @@ export const TCast = {
 /*                                                      TMarkers                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type MaybeWithOverride<T extends readonly unknown[]> = T | [TOverrideMarker, ...T] extends infer X ? X : never;
-
 export const TOverrideMarker = Symbol("t.override");
 export type TOverrideMarker = typeof TOverrideMarker;
 
+export type MaybeWithOverride<T extends readonly unknown[]> = T | [TOverrideMarker, ...T] extends infer X ? X : never;
+
+export const TUnsetMarker = Symbol("t.unset");
+export type TUnsetMarker = typeof TUnsetMarker;
+
 export const TMarkers = {
   override: TOverrideMarker,
+  unset: TUnsetMarker,
 } as const;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -2139,6 +2443,7 @@ export const definedType = TDefined.create;
 export const falseType = TFalse.create;
 export const intersectionType = TIntersection.create;
 export const lazyType = TLazy.create;
+export const literalType = TLiteral.create;
 export const nanType = TNaN.create;
 export const neverType = TNever.create;
 export const nonnullableType = TNonNullable.create;
@@ -2147,6 +2452,7 @@ export const nullType = TNull.create;
 export const numberType = TNumber.create;
 export const optionalType = TOptional.create;
 export const promiseType = TPromise.create;
+export const recordType = TRecord.create;
 export const setType = TSet.create;
 export const stringType = TString.create;
 export const symbolType = TSymbol.create;
@@ -2158,6 +2464,7 @@ export const voidType = TVoid.create;
 
 export const markers = TMarkers;
 export const overrideMarker: typeof TOverrideMarker = TMarkers.override;
+export const unsetMarker: typeof TUnsetMarker = TMarkers.unset;
 
 export const global = () => TGlobal;
 
@@ -2179,6 +2486,7 @@ export {
   intersectionType as and,
   intersectionType as intersection,
   lazyType as lazy,
+  literalType as literal,
   nanType as nan,
   neverType as never,
   nonnullableType as nonnullable,
@@ -2188,6 +2496,7 @@ export {
   optionalType as optional,
   overrideMarker as override,
   promiseType as promise,
+  recordType as record,
   setType as set,
   stringType as string,
   symbolType as symbol,
@@ -2196,6 +2505,7 @@ export {
   unionType as or,
   unionType as union,
   unknownType as unknown,
+  unsetMarker as unset,
   voidType as void,
 };
 

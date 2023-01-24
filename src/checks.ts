@@ -62,11 +62,11 @@ export namespace TCheck {
   export type MaxKeys = MakeTCheck<"max_keys", { value: number; inclusive: boolean }>;
 }
 
-export function validateMin<V>(value: V, check: TCheck.Min<V>): boolean {
+export function validateMin<V>(value: V, check: TCheck.Min<V> | TCheck.MinKeys): boolean {
   return check.inclusive ? value >= check.value : value > check.value;
 }
 
-export function validateMax<V>(value: V, check: TCheck.Max<V>): boolean {
+export function validateMax<V>(value: V, check: TCheck.Max<V> | TCheck.MaxKeys): boolean {
   return check.inclusive ? value <= check.value : value < check.value;
 }
 

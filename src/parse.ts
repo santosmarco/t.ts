@@ -2,7 +2,7 @@ import type * as tf from "type-fest";
 import { TError, resolveErrorMaps } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
-import { processCreateOptions, type ProcessedTParseOptions } from "./options";
+import { processCreateOptions, type AnyTOptions, type ProcessedTOptions, type ProcessedTParseOptions } from "./options";
 import type { AnyTType } from "./types";
 import { ValueKind, conditionalOmitDeep, isKindOf, kindOf } from "./utils";
 
@@ -62,9 +62,9 @@ export type TParseContextDef<T extends AnyTType> = {
 export class TParseContext<T extends AnyTType = AnyTType> {
   private _status: TParseContextStatus;
   private _data: unknown;
+  private _path: ReadonlyArray<string | number>;
 
   private readonly _t: T;
-  private readonly _path: ReadonlyArray<string | number>;
   private readonly _parent: TParseContext | null;
   private readonly _common: TParseContextCommon<T>;
 
@@ -77,9 +77,9 @@ export class TParseContext<T extends AnyTType = AnyTType> {
 
     this._status = TParseContextStatus.Valid;
     this._data = data;
+    this._path = coercePath(path);
 
     this._t = t;
-    this._path = path.map((part) => (isKindOf(part, ValueKind.Symbol) ? String(part) : part));
     this._parent = parent;
     this._common = common;
 
@@ -145,11 +145,19 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   }
 
   get valid(): boolean {
-    return this.status === TParseContextStatus.Valid && this.allChildren.every((child) => child.valid);
+    if (!this.parent) {
+      return this.status === TParseContextStatus.Valid && this.allIssues.length === 0;
+    }
+    return this.parent.valid;
   }
 
   setData(data: unknown): this {
     this._data = data;
+    return this;
+  }
+
+  pushPath(...path: TParseContextPath): this {
+    this._path = [...this.path, ...coercePath(path)];
     return this;
   }
 
@@ -182,7 +190,11 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     });
   }
 
-  addIssue<K extends TIssueKind>(issue: TParseContextIssueInput<K>, message: string | undefined): this {
+  addIssue<K extends TIssueKind>(
+    issue: TParseContextIssueInput<K>,
+    message: string | undefined,
+    options?: { pushPath?: TParseContextPath }
+  ): this {
     if (!this.common.warnOnly) {
       if (this.valid) {
         this.invalidate();
@@ -196,15 +208,15 @@ export class TParseContext<T extends AnyTType = AnyTType> {
 
     const sanitizedIssue = conditionalOmitDeep(issue, ValueKind.Function);
 
+    const issuePath = options?.pushPath ? [...this.path, ...coercePath(options.pushPath)] : this.path;
+
     const partialIssue = {
       ...sanitizedIssue,
       data: this.data,
-      path: this.path,
+      path: issuePath,
       label: this.common.label ?? generateIssueLabel(this.path, locale.defaultLabel),
       ...(this.common.warnOnly && { warning: true }),
     };
-
-    console.log(this.t.typeName, this.common);
 
     const issueMsg =
       message ??
@@ -288,11 +300,15 @@ function processTParseContextCommon<T extends AnyTType, U extends AnyTType>(
   t: T,
   common: TParseContextCommon<U>
 ): TParseContextCommon<T> {
-  const processedTOpts = processCreateOptions(t.options);
-
+  const processedSchemaOpts = processCreateOptions(t.options) as ProcessedTOptions<AnyTOptions>;
   return {
-    ...common,
-    ...processedTOpts,
+    abortEarly: processedSchemaOpts.abortEarly || common.abortEarly,
+    label: processedSchemaOpts.label,
+    schemaErrorMap: processedSchemaOpts.schemaErrorMap,
+    contextualErrorMap: common.contextualErrorMap,
+    warnOnly: processedSchemaOpts.warnOnly || common.warnOnly,
+    messages: processedSchemaOpts.messages,
+    async: common.async,
   };
 }
 
@@ -320,4 +336,14 @@ function generateIssueLabel(path: TParseContextPath, defaultValue: string): stri
   }
 
   return label;
+}
+
+function coercePath(path: TParseContextPath): ReadonlyArray<string | number> {
+  return path.map((segment) => {
+    if (isKindOf(segment, ValueKind.Symbol)) {
+      return String(segment);
+    }
+
+    return segment;
+  });
 }

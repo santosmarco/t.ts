@@ -1,9 +1,6 @@
 import type { TErrorMap } from "./error";
-import { TGlobal } from "./global";
 import type { TIssueKind } from "./issues";
-import { BRAND, pick, type Branded, enbrand } from "./utils";
-
-/* ------------------------------------------------------------------------------------------------------------------ */
+import { BRAND, enbrand, pick, type Branded } from "./utils";
 /*                                                      TOptions                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -14,7 +11,7 @@ export type TOptionsOpts = {
 export type TOptions<T extends TOptionsOpts | null = null> = {
   readonly abortEarly?: boolean;
   readonly label?: string;
-  readonly schemaErrorMap?: TErrorMap | null;
+  readonly schemaErrorMap?: TErrorMap;
   readonly warnOnly?: boolean;
   readonly messages?: {
     readonly [K in
@@ -34,20 +31,20 @@ export type TParseOptions = {
 };
 
 export type ProcessedTOptions<T extends TOptions> = T extends infer U extends Record<string, unknown>
-  ? Branded<{ [K in keyof U]-?: U[K] }, "__ProcessedTOptions">
+  ? Branded<
+      { [K in keyof U]-?: (K extends "label" | "schemaErrorMap" ? undefined : never) | U[K] },
+      "__ProcessedTOptions"
+    >
   : never;
 
 export function processCreateOptions<T extends TOptions>(opts: T | undefined): ProcessedTOptions<T> {
-  const locale = TGlobal.getLocale();
   return enbrand(
     {
       abortEarly: opts?.abortEarly ?? false,
-      label: opts?.label ?? locale.defaultLabel,
-      schemaErrorMap: opts?.schemaErrorMap ?? null,
+      label: opts?.label,
+      schemaErrorMap: opts?.schemaErrorMap,
       warnOnly: opts?.warnOnly ?? false,
-      messages: {
-        ...opts?.messages,
-      },
+      messages: { ...opts?.messages },
     },
     "__ProcessedTOptions"
   ) as ProcessedTOptions<T>;
