@@ -2,7 +2,7 @@ import type * as tf from "type-fest";
 import { TError, resolveErrorMaps } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
-import { processCreateOptions, type TParseOptionsProcessed } from "./options";
+import { processCreateOptions, type ProcessedTParseOptions } from "./options";
 import type { AnyTType } from "./types";
 import { ValueKind, conditionalOmitDeep, isKindOf, kindOf } from "./utils";
 
@@ -47,7 +47,7 @@ export type TParseContextIssueInput<K extends TIssueKind> = K extends unknown
   ? tf.Except<TIssue<K>, keyof tf.Except<TIssueBase<K>, "kind" | "payload">>
   : never;
 
-export type TParseContextCommon<T extends AnyTType> = TParseOptionsProcessed<T["options"]> & {
+export type TParseContextCommon<T extends AnyTType> = ProcessedTParseOptions<T["options"]> & {
   readonly async: boolean;
 };
 
@@ -235,7 +235,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     );
   }
 
-  result<U extends T["$O"]>(data?: U): TParseResultSyncOf<T> {
+  return<U extends T["$O"]>(data?: U): TParseResultSyncOf<T> {
     const base = {
       ...(this.allWarnings.length && { warnings: this.allWarnings }),
     };
@@ -258,7 +258,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   static createSync<T extends AnyTType>(
     t: T,
     data: unknown,
-    options: TParseOptionsProcessed<T["options"]>
+    options: ProcessedTParseOptions<T["options"]>
   ): TParseContext<T> {
     return new TParseContext({
       t,
@@ -272,7 +272,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   static createAsync<T extends AnyTType>(
     t: T,
     data: unknown,
-    options: TParseOptionsProcessed<T["options"]>
+    options: ProcessedTParseOptions<T["options"]>
   ): TParseContext<T> {
     return new TParseContext({
       t,

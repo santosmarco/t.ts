@@ -17,5 +17,15 @@ module.exports = {
     "@typescript-eslint/no-namespace": "off",
     "@typescript-eslint/no-redeclare": "off",
     complexity: "off",
+    "@typescript-eslint/padding-line-between-statements": "off",
+    "@typescript-eslint/consistent-type-assertions": "off",
   },
+  overrides: [
+    {
+      files: ["./tests/**/*.ts"],
+      parserOptions: {
+        project: "./tsconfig.test.json",
+      },
+    },
+  ],
 };

@@ -1,5 +1,6 @@
 import type * as tf from "type-fest";
 import type { AnyBrandedTDef } from "./def";
+import { ValueKind, isKindOf } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TManifest                                                     */
@@ -33,3 +34,11 @@ export type TRetrievableManifest<D extends AnyBrandedTDef> = D["$Manifest"] & {
 };
 
 export type AnyTManifest = TManifest<any, any>;
+
+export function parseMaybeDescriptive(maybeDescriptive: string | DescriptiveWithValue<string>) {
+  if (isKindOf(maybeDescriptive, ValueKind.String)) {
+    return { value: maybeDescriptive };
+  }
+
+  return maybeDescriptive;
+}

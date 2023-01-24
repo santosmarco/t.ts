@@ -1,20 +1,28 @@
 import type * as tf from "type-fest";
-import { TCheckKind, filterChecks, filterOutChecks, sanitizeCheck, type TCheck } from "./checks";
-import type { AnyBrandedTDef, MakeTDef, TCtorDef, TRuntimeDef } from "./def";
+import {
+  TCheckKind,
+  filterChecks,
+  filterOutChecks,
+  sanitizeCheck,
+  validateMax,
+  validateMin,
+  validateRange,
+  type TCheck,
+} from "./checks";
+import type { AnyBrandedTDef, MakeTDef, TCtorDef, TDef, TRuntimeDef } from "./def";
 import { type TErrorMap } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind } from "./issues";
-import type { DescriptiveWithValue, TRetrievableManifest } from "./manifest";
+import { parseMaybeDescriptive, type DescriptiveWithValue } from "./manifest";
 import {
   pickTransferrableOptions,
   processCreateOptions,
   processParseOptions,
   type TOptions,
-  type TOptionsProcessed,
   type TParseOptions,
 } from "./options";
 import { TParseContext, type TParseResultOf, type TParseResultSyncOf } from "./parse";
-import { ValueKind, assertNever, cloneDeep, isKindOf, type AtLeastOne } from "./utils";
+import { ValueKind, assertNever, cloneDeep, debrand, isKindOf, tail, type AtLeastOne } from "./utils";
 
 export const TTypeName = {
   Any: "TAny",
@@ -37,6 +45,7 @@ export const TTypeName = {
   Number: "TNumber",
   Optional: "TOptional",
   Promise: "TPromise",
+  Record: "TRecord",
   Set: "TSet",
   String: "TString",
   Symbol: "TSymbol",
@@ -61,7 +70,7 @@ export abstract class TType<D extends AnyBrandedTDef> {
   protected constructor(def: TCtorDef<D>) {
     const { typeName, props = null, options, manifest = {}, checks = [] } = def;
 
-    this._def = cloneDeep({ typeName, props, options, manifest, checks });
+    this._def = cloneDeep({ typeName, props, options: debrand(options), manifest, checks });
 
     this.clone = this.clone.bind(this);
     // Parsing
@@ -120,12 +129,12 @@ export abstract class TType<D extends AnyBrandedTDef> {
     return this._def.props;
   }
 
-  get options(): TOptionsProcessed<D["$Options"]> {
+  get options(): D["$Options"] {
     return this._def.options;
   }
 
-  get manifest(): TRetrievableManifest<D> {
-    return { ...this.manifest, label: this.options.label };
+  get manifest(): D["$Manifest"] {
+    return this._def.manifest;
   }
 
   get checks(): D["$Checks"] {
@@ -222,11 +231,11 @@ export abstract class TType<D extends AnyBrandedTDef> {
     return this.or(this.promise());
   }
 
-  or<T extends [AnyTType, ...AnyTType[]]>(...types: T): TUnion<[this, ...T]> {
+  or<T extends AtLeastOne<AnyTType>>(...types: T): TUnion<[this, ...T]> {
     return TUnion._create([this, ...types], pickTransferrableOptions(this.options));
   }
 
-  and<T extends [AnyTType, ...AnyTType[]]>(...types: T): TIntersection<[this, ...T]> {
+  and<T extends AtLeastOne<AnyTType>>(...types: T): TIntersection<[this, ...T]> {
     return TIntersection._create([this, ...types], pickTransferrableOptions(this.options));
   }
 
@@ -287,47 +296,41 @@ export abstract class TType<D extends AnyBrandedTDef> {
 
   examples(
     examples: tf.RequireAtLeastOne<{
-      in: Array<DescriptiveWithValue<D["$In"]>>;
-      out: Array<DescriptiveWithValue<D["$Out"]>>;
+      in: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<D["$In"]>>>;
+      out: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<D["$Out"]>>>;
     }>
   ): this {
+    const currExamplesIn = this._def.manifest.examples?.in ?? [];
+    const currExamplesOut = this._def.manifest.examples?.out ?? [];
     return this._construct({
       ...this._def,
       manifest: {
         ...this._def.manifest,
         examples: {
           ...this._def.manifest.examples,
-          ...(examples.in && { in: [...(this._def.manifest.examples?.in ?? []), ...examples.in] }),
-          ...(examples.out && { out: [...(this._def.manifest.examples?.out ?? []), ...examples.out] }),
+          ...(examples.in && {
+            in: examples.in[0] === TMarkers.override ? tail(examples.in) : [...currExamplesIn, ...examples.in],
+          }),
+          ...(examples.out && {
+            out: examples.out[0] === TMarkers.override ? tail(examples.out) : [...currExamplesOut, ...examples.out],
+          }),
         },
       },
     });
   }
 
-  tags(...tags: Array<string | DescriptiveWithValue<string>>) {
-    return this._construct({
-      ...this._def,
-      manifest: {
-        ...this._def.manifest,
-        tags: [
-          ...(this._def.manifest.tags ?? []),
-          ...tags.map((tag) => (typeof tag === "string" ? { value: tag } : tag)),
-        ],
-      },
-    });
+  tags(...tags: MaybeWithOverride<AtLeastOne<string | DescriptiveWithValue<string>>>) {
+    const currTags = this._def.manifest.tags ?? [];
+    const updatedTags =
+      tags[0] === TMarkers.override ? tail(tags) : [...currTags, ...tags.map((t) => parseMaybeDescriptive(t))];
+    return this._construct({ ...this._def, manifest: { ...this._def.manifest, tags: updatedTags } });
   }
 
-  notes(...notes: Array<string | DescriptiveWithValue<string>>) {
-    return this._construct({
-      ...this._def,
-      manifest: {
-        ...this._def.manifest,
-        notes: [
-          ...(this._def.manifest.notes ?? []),
-          ...notes.map((tag) => (typeof tag === "string" ? { value: tag } : tag)),
-        ],
-      },
-    });
+  notes(...notes: MaybeWithOverride<AtLeastOne<string | DescriptiveWithValue<string>>>) {
+    const currNotes = this._def.manifest.tags ?? [];
+    const updatedNotes =
+      notes[0] === TMarkers.override ? tail(notes) : [...currNotes, ...notes.map((n) => parseMaybeDescriptive(n))];
+    return this._construct({ ...this._def, manifest: { ...this._def.manifest, notes: updatedNotes } });
   }
 
   unit(unit: string | DescriptiveWithValue<string>) {
@@ -381,7 +384,7 @@ export abstract class TType<D extends AnyBrandedTDef> {
   }
 }
 
-export type AnyTType = TType<AnyBrandedTDef>;
+export type AnyTType = TType<any>;
 
 export type OutputOf<T extends AnyTType> = tf.Simplify<T["$O"]>;
 export type InputOf<T extends AnyTType> = tf.Simplify<T["$I"]>;
@@ -397,7 +400,7 @@ export type TAnyDef = MakeTDef<{
 
 export class TAny extends TType<TAnyDef> {
   _parse(ctx: TParseContext<this>) {
-    return ctx.result(ctx.data);
+    return ctx.return(ctx.data);
   }
 
   static create(options?: TOptions): TAny {
@@ -416,7 +419,7 @@ export type TUnknownDef = MakeTDef<{
 
 export class TUnknown extends TType<TUnknownDef> {
   _parse(ctx: TParseContext<this>) {
-    return ctx.result(ctx.data);
+    return ctx.return(ctx.data);
   }
 
   static create(options?: TOptions): TUnknown {
@@ -440,7 +443,7 @@ export class TNever extends TType<TNeverDef> {
   _parse(ctx: TParseContext<this>) {
     return ctx
       .addIssue({ kind: TIssueKind.Base.Forbidden }, this.options.messages?.[TIssueKind.Base.Forbidden])
-      .result();
+      .return();
   }
 
   static create(options?: TNeverOptions): TNever {
@@ -460,8 +463,8 @@ export type TUndefinedDef = MakeTDef<{
 export class TUndefined extends TType<TUndefinedDef> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
-      ? ctx.result(ctx.data)
-      : ctx.invalidType({ expected: ValueKind.Undefined }).result();
+      ? ctx.return(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Undefined }).return();
   }
 
   static create(options?: TOptions): TUndefined {
@@ -481,8 +484,8 @@ export type TVoidDef = MakeTDef<{
 export class TVoid extends TType<TVoidDef> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
-      ? ctx.result(ctx.data)
-      : ctx.invalidType({ expected: ValueKind.Void }).result();
+      ? ctx.return(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Void }).return();
   }
 
   static create(options?: TOptions): TVoid {
@@ -502,8 +505,8 @@ export type TNullDef = MakeTDef<{
 export class TNull extends TType<TNullDef> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Null)
-      ? ctx.result(ctx.data)
-      : ctx.invalidType({ expected: ValueKind.Null }).result();
+      ? ctx.return(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Null }).return();
   }
 
   static create(options?: TOptions): TNull {
@@ -531,10 +534,10 @@ export class TString<Co extends TStringCoercion = false> extends TType<TStringDe
     }
 
     if (!isKindOf(ctx.data, ValueKind.String)) {
-      return ctx.invalidType({ expected: ValueKind.String }).result();
+      return ctx.invalidType({ expected: ValueKind.String }).return();
     }
 
-    return ctx.result(ctx.data);
+    return ctx.return(ctx.data);
   }
 
   /* ----------------------------------------------- Coercion/Casting ----------------------------------------------- */
@@ -614,7 +617,7 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
     }
 
     if (!isKindOf(ctx.data, ValueKind.Number)) {
-      return ctx.invalidType({ expected: ValueKind.Number }).result();
+      return ctx.invalidType({ expected: ValueKind.Number }).return();
     }
 
     const safeCheck = filterChecks(this.checks, [TCheckKind.Safe]).reverse()[0];
@@ -622,16 +625,12 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
 
     if (safeCheck && (ctx.data < Number.MIN_SAFE_INTEGER || ctx.data > Number.MAX_SAFE_INTEGER)) {
       ctx.addIssue({ kind: TIssueKind.Number.Safe }, safeCheck.message);
-      if (ctx.common.abortEarly) {
-        return ctx.result();
-      }
+      if (ctx.common.abortEarly) return ctx.return();
     }
 
     if (finiteCheck && !Number.isFinite(ctx.data)) {
       ctx.addIssue({ kind: TIssueKind.Number.Finite }, finiteCheck.message);
-      if (ctx.common.abortEarly) {
-        return ctx.result();
-      }
+      if (ctx.common.abortEarly) return ctx.return();
     }
 
     const postChecks = filterOutChecks(this.checks, [TCheckKind.Safe, TCheckKind.Finite]);
@@ -643,11 +642,8 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
             ctx.setData(Math.trunc(ctx.data));
           } else if (!Number.isInteger(ctx.data)) {
             ctx.addIssue({ kind: TIssueKind.Number.Integer, payload: sanitizeCheck(check) }, check.message);
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
         case TCheckKind.Precision:
           if (check.strict) {
@@ -657,70 +653,41 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
                 { kind: TIssueKind.Number.Precision, payload: { ...sanitizeCheck(check), received: decimals } },
                 check.message
               );
-              if (ctx.common.abortEarly) {
-                return ctx.result();
-              }
+              if (ctx.common.abortEarly) return ctx.return();
             }
           } else {
             ctx.setData(Math.round(ctx.data * 10 ** check.value) / 10 ** check.value);
           }
-
           break;
         case TCheckKind.Min:
-          if (check.inclusive ? ctx.data < check.value : ctx.data <= check.value) {
+          if (!validateMin(ctx.data, check)) {
             ctx.addIssue({ kind: TIssueKind.Number.Min, payload: sanitizeCheck(check) }, check.message);
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
         case TCheckKind.Max:
-          if (check.inclusive ? ctx.data > check.value : ctx.data >= check.value) {
+          if (!validateMax(ctx.data, check)) {
             ctx.addIssue({ kind: TIssueKind.Number.Max, payload: sanitizeCheck(check) }, check.message);
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
         case TCheckKind.Range:
-          if (
-            {
-              "[": {
-                "]": ctx.data < check.min || ctx.data > check.max,
-                ")": ctx.data < check.min || ctx.data >= check.max,
-              },
-              "(": {
-                "]": ctx.data <= check.min || ctx.data > check.max,
-                ")": ctx.data <= check.min || ctx.data >= check.max,
-              },
-            }[check.inclusive[0] as "[" | "("][check.inclusive[1] as "]" | ")"]
-          ) {
+          if (!validateRange(ctx.data, check)) {
             ctx.addIssue({ kind: TIssueKind.Number.Range, payload: sanitizeCheck(check) }, check.message);
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
         case TCheckKind.Multiple:
           if (floatSafeRemainder(ctx.data, check.value) !== 0) {
             ctx.addIssue({ kind: TIssueKind.Number.Multiple, payload: sanitizeCheck(check) }, check.message);
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
         case TCheckKind.Port:
           if (ctx.data < 0 || ctx.data > 65535) {
             ctx.addIssue({ kind: TIssueKind.Number.Port, payload: sanitizeCheck(check) }, check.message);
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
 
         default:
@@ -728,7 +695,7 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
       }
     }
 
-    return ctx.result(
+    return ctx.return(
       (casting === "string" ? String(ctx.data) : casting === "bigint" ? BigInt(ctx.data) : ctx.data) as this["$O"]
     );
   }
@@ -891,8 +858,8 @@ export type TNaNDef = MakeTDef<{
 export class TNaN extends TType<TNaNDef> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.NaN)
-      ? ctx.result(ctx.data)
-      : ctx.invalidType({ expected: ValueKind.NaN }).result();
+      ? ctx.return(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.NaN }).return();
   }
 
   static create(options?: TOptions): TNaN {
@@ -912,10 +879,10 @@ export type TBigIntDef = MakeTDef<{
 export class TBigInt extends TType<TBigIntDef> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.BigInt)) {
-      return ctx.invalidType({ expected: ValueKind.BigInt }).result();
+      return ctx.invalidType({ expected: ValueKind.BigInt }).return();
     }
 
-    return ctx.result(ctx.data);
+    return ctx.return(ctx.data);
   }
 
   static create(options?: TOptions): TBigInt {
@@ -935,10 +902,10 @@ export type TBooleanDef = MakeTDef<{
 export class TBoolean extends TType<TBooleanDef> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Boolean)) {
-      return ctx.invalidType({ expected: ValueKind.Boolean }).result();
+      return ctx.invalidType({ expected: ValueKind.Boolean }).return();
     }
 
-    return ctx.result(ctx.data);
+    return ctx.return(ctx.data);
   }
 
   true(): TTrue {
@@ -963,7 +930,7 @@ export type TTrueDef = MakeTDef<{
 
 export class TTrue extends TType<TTrueDef> {
   _parse(ctx: TParseContext<this>) {
-    return ctx.data === true ? ctx.result<true>(ctx.data) : ctx.invalidType({ expected: ValueKind.True }).result();
+    return ctx.data === true ? ctx.return<true>(ctx.data) : ctx.invalidType({ expected: ValueKind.True }).return();
   }
 
   static create(options?: TOptions): TTrue {
@@ -980,7 +947,7 @@ export type TFalseDef = MakeTDef<{
 
 export class TFalse extends TType<TFalseDef> {
   _parse(ctx: TParseContext<this>) {
-    return ctx.data === false ? ctx.result<false>(ctx.data) : ctx.invalidType({ expected: ValueKind.False }).result();
+    return ctx.data === false ? ctx.return<false>(ctx.data) : ctx.invalidType({ expected: ValueKind.False }).return();
   }
 
   static create(options?: TOptions): TFalse {
@@ -1000,10 +967,10 @@ export type TDateDef = MakeTDef<{
 export class TDate extends TType<TDateDef> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Date)) {
-      return ctx.invalidType({ expected: ValueKind.Date }).result();
+      return ctx.invalidType({ expected: ValueKind.Date }).return();
     }
 
-    return ctx.result(ctx.data);
+    return ctx.return(ctx.data);
   }
 
   static create(options?: TOptions): TDate {
@@ -1023,8 +990,8 @@ export type TSymbolDef = MakeTDef<{
 export class TSymbol extends TType<TSymbolDef> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Symbol)
-      ? ctx.result(ctx.data)
-      : ctx.invalidType({ expected: ValueKind.Symbol }).result();
+      ? ctx.return(ctx.data)
+      : ctx.invalidType({ expected: ValueKind.Symbol }).return();
   }
 
   static create(options?: TOptions): TSymbol {
@@ -1049,7 +1016,7 @@ export type TArrayDef<T extends AnyTType, Card extends TArrayCardinality> = Make
   $In: TArrayIO<T, Card, "$I">;
   $TypeName: "TArray";
   $Props: { readonly element: T };
-  $Checks: ReadonlyArray<TCheck.Min | TCheck.Max | TCheck.Length | TCheck.Unique | TCheck.Sort>;
+  $Checks: ReadonlyArray<TCheck.Min | TCheck.Max | TCheck.Length | TCheck.Range | TCheck.Unique | TCheck.Sort>;
 }>;
 
 export type TArrayComparatorFn<T extends AnyTType, R> = ((
@@ -1088,9 +1055,7 @@ function finalizeArray<T extends AnyTType, U>(
           { kind: TIssueKind.Array.Unique, payload: { ...sanitizeCheck(check), duplicates } },
           check.message
         );
-        if (ctx.common.abortEarly) {
-          return ctx.result();
-        }
+        if (ctx.common.abortEarly) return ctx.return();
       }
     } else if (check.kind === TCheckKind.Sort) {
       const sorted = check.comparator
@@ -1104,25 +1069,24 @@ function finalizeArray<T extends AnyTType, U>(
         result = sorted;
       } else if (!_result.every((v, i) => v === sorted[i])) {
         ctx.addIssue({ kind: TIssueKind.Array.Sort, payload: sanitizeCheck(check) }, check.message);
-        if (ctx.common.abortEarly) {
-          return ctx.result();
-        }
+        if (ctx.common.abortEarly) return ctx.return();
       }
     } else {
       assertNever(check);
     }
   }
 
-  return ctx.result(result);
+  return ctx.return(result);
 }
 
 export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many"> extends TType<TArrayDef<T, Card>> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Array)) {
-      return ctx.invalidType({ expected: ValueKind.Array }).result();
+      return ctx.invalidType({ expected: ValueKind.Array }).return();
     }
 
     const { element } = this.props;
+    const { length } = ctx.data;
     const entries = [...ctx.data.entries()];
 
     const preChecks = filterOutChecks(this.checks, [TCheckKind.Unique, TCheckKind.Sort]);
@@ -1131,40 +1095,40 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     for (const check of preChecks) {
       switch (check.kind) {
         case TCheckKind.Min:
-          if (check.inclusive ? entries.length < check.value : entries.length <= check.value) {
+          if (!validateMin(length, check)) {
             ctx.addIssue(
-              { kind: TIssueKind.Array.Min, payload: { ...sanitizeCheck(check), received: entries.length } },
+              { kind: TIssueKind.Array.Min, payload: { ...sanitizeCheck(check), received: length } },
               check.message
             );
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
         case TCheckKind.Max:
-          if (check.inclusive ? entries.length > check.value : entries.length >= check.value) {
+          if (!validateMax(length, check)) {
             ctx.addIssue(
-              { kind: TIssueKind.Array.Max, payload: { ...sanitizeCheck(check), received: entries.length } },
+              { kind: TIssueKind.Array.Max, payload: { ...sanitizeCheck(check), received: length } },
               check.message
             );
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
           break;
         case TCheckKind.Length:
-          if (entries.length !== check.value) {
+          if (length !== check.value) {
             ctx.addIssue(
-              { kind: TIssueKind.Array.Length, payload: { ...sanitizeCheck(check), received: entries.length } },
+              { kind: TIssueKind.Array.Length, payload: { ...sanitizeCheck(check), received: length } },
               check.message
             );
-            if (ctx.common.abortEarly) {
-              return ctx.result();
-            }
+            if (ctx.common.abortEarly) return ctx.return();
           }
-
+          break;
+        case TCheckKind.Range:
+          if (!validateRange(length, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Array.Range, payload: { ...sanitizeCheck(check), received: length } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
           break;
 
         default:
@@ -1181,7 +1145,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
             if (res.ok) {
               result.push(res.data);
             } else if (ctx.common.abortEarly) {
-              return ctx.result();
+              return ctx.return();
             }
           }
 
@@ -1195,7 +1159,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
       if (res.ok) {
         result.push(res.data);
       } else if (ctx.common.abortEarly) {
-        return ctx.result();
+        return ctx.return();
       }
     }
 
@@ -1209,6 +1173,8 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
   unwrap(): T {
     return this.element;
   }
+
+  /* ---------------------------------------------------- Checks ---------------------------------------------------- */
 
   min(value: number, options?: { inclusive?: boolean; message?: string }) {
     return this._addCheck({
@@ -1230,6 +1196,20 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
 
   length(value: number, options?: { message?: string }) {
     return this._addCheck({ kind: TCheckKind.Length, value, message: options?.message });
+  }
+
+  range(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.Range,
+      min,
+      max,
+      inclusive: options?.inclusive ?? "[]",
+      message: options?.message,
+    });
+  }
+
+  between(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
+    return this.range(min, max, options);
   }
 
   nonempty(options?: { message?: string }): TArray<T, "atleastone"> {
@@ -1319,16 +1299,62 @@ export type TSetDef<T extends AnyTType> = MakeTDef<{
   $In: Set<InputOf<T>>;
   $TypeName: "TSet";
   $Props: { readonly element: T };
+  $Checks: ReadonlyArray<TCheck.Min | TCheck.Max | TCheck.Size | TCheck.Range>;
 }>;
 
 export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Set)) {
-      return ctx.invalidType({ expected: ValueKind.Set }).result();
+      return ctx.invalidType({ expected: ValueKind.Set }).return();
     }
 
     const { element } = this.props;
+    const { size } = ctx.data;
     const values = [...ctx.data];
+
+    for (const check of this.checks) {
+      switch (check.kind) {
+        case TCheckKind.Min:
+          if (!validateMin(size, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Set.Min, payload: { ...sanitizeCheck(check), received: size } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+        case TCheckKind.Max:
+          if (!validateMax(size, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Set.Max, payload: { ...sanitizeCheck(check), received: size } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+        case TCheckKind.Size:
+          if (size !== check.value) {
+            ctx.addIssue(
+              { kind: TIssueKind.Set.Size, payload: { ...sanitizeCheck(check), received: size } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+        case TCheckKind.Range:
+          if (!validateRange(size, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Set.Range, payload: { ...sanitizeCheck(check), received: size } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+
+        default:
+          assertNever(check);
+      }
+    }
 
     const result = new Set<OutputOf<T>>();
 
@@ -1339,11 +1365,11 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
             if (res.ok) {
               result.add(res.data);
             } else if (ctx.common.abortEarly) {
-              return ctx.result();
+              return ctx.return();
             }
           }
 
-          return ctx.result(result);
+          return ctx.return(result);
         }
       );
     }
@@ -1353,11 +1379,11 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
       if (res.ok) {
         result.add(res.data);
       } else if (ctx.common.abortEarly) {
-        return ctx.result();
+        return ctx.return();
       }
     }
 
-    return ctx.result(result);
+    return ctx.return(result);
   }
 
   get element(): T {
@@ -1366,6 +1392,44 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
 
   unwrap(): T {
     return this.element;
+  }
+
+  /* ---------------------------------------------------- Checks ---------------------------------------------------- */
+
+  min(value: number, options?: { inclusive?: boolean; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.Min,
+      value,
+      inclusive: options?.inclusive ?? true,
+      message: options?.message,
+    });
+  }
+
+  max(value: number, options?: { inclusive?: boolean; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.Max,
+      value,
+      inclusive: options?.inclusive ?? true,
+      message: options?.message,
+    });
+  }
+
+  size(value: number, options?: { message?: string }) {
+    return this._addCheck({ kind: TCheckKind.Size, value, message: options?.message });
+  }
+
+  range(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.Range,
+      min,
+      max,
+      inclusive: options?.inclusive ?? "[]",
+      message: options?.message,
+    });
+  }
+
+  between(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
+    return this.range(min, max, options);
   }
 
   map<U extends AnyTType>(fn: (element: T) => U): TSet<U> {
@@ -1396,7 +1460,12 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
   });
 
   private static _create<T extends AnyTType>(element: T, options?: TOptions): TSet<T> {
-    return new TSet({ typeName: TTypeName.Set, props: { element }, options: processCreateOptions(options) });
+    return new TSet({
+      typeName: TTypeName.Set,
+      props: { element },
+      checks: [],
+      options: processCreateOptions(options),
+    });
   }
 }
 
@@ -1409,24 +1478,130 @@ export type AnyTSet = TSet<AnyTType>;
 export type TBufferDef = MakeTDef<{
   $Out: Buffer;
   $TypeName: "TBuffer";
+  $Checks: ReadonlyArray<TCheck.Min | TCheck.Max | TCheck.Length | TCheck.Range>;
 }>;
 
 export class TBuffer extends TType<TBufferDef> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Buffer)) {
-      return ctx.invalidType({ expected: ValueKind.Buffer }).result();
+      return ctx.invalidType({ expected: ValueKind.Buffer }).return();
     }
 
-    return ctx.result(ctx.data);
+    const { length } = ctx.data;
+
+    for (const check of this.checks) {
+      switch (check.kind) {
+        case TCheckKind.Min:
+          if (!validateMin(length, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Buffer.Min, payload: { ...sanitizeCheck(check), received: length } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+        case TCheckKind.Max:
+          if (!validateMax(length, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Buffer.Max, payload: { ...sanitizeCheck(check), received: length } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+        case TCheckKind.Length:
+          if (length !== check.value) {
+            ctx.addIssue(
+              { kind: TIssueKind.Buffer.Length, payload: { ...sanitizeCheck(check), received: length } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+        case TCheckKind.Range:
+          if (!validateRange(length, check)) {
+            ctx.addIssue(
+              { kind: TIssueKind.Buffer.Range, payload: { ...sanitizeCheck(check), received: length } },
+              check.message
+            );
+            if (ctx.common.abortEarly) return ctx.return();
+          }
+          break;
+
+        default:
+          assertNever(check);
+      }
+    }
+
+    return ctx.return(ctx.data);
+  }
+
+  /* ---------------------------------------------------- Checks ---------------------------------------------------- */
+
+  min(value: number, options?: { inclusive?: boolean; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.Min,
+      value,
+      inclusive: options?.inclusive ?? true,
+      message: options?.message,
+    });
+  }
+
+  max(value: number, options?: { inclusive?: boolean; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.Max,
+      value,
+      inclusive: options?.inclusive ?? true,
+      message: options?.message,
+    });
+  }
+
+  length(value: number, options?: { message?: string }) {
+    return this._addCheck({ kind: TCheckKind.Length, value, message: options?.message });
+  }
+
+  range(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
+    return this._addCheck({
+      kind: TCheckKind.Range,
+      min,
+      max,
+      inclusive: options?.inclusive ?? "[]",
+      message: options?.message,
+    });
+  }
+
+  between(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
+    return this.range(min, max, options);
   }
 
   static create(options?: TOptions): TBuffer {
     return new TBuffer({
       typeName: TTypeName.Buffer,
+      checks: [],
       options: processCreateOptions(options),
     });
   }
 }
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                       TRecord                                                      */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TRecordDef<
+  K extends TType<MakeTDef<tf.Merge<TDef, { $Out: PropertyKey; $In: PropertyKey }>>>,
+  V extends AnyTType
+> = MakeTDef<{
+  $Out: Record<K["$O"], V["$O"]>;
+  $In: Record<K["$I"], V["$I"]>;
+  $TypeName: "TRecord";
+  $Checks: ReadonlyArray<TCheck.Min | TCheck.Max>;
+  $Props: { readonly key: K; readonly value: V };
+}>;
+
+export class TRecord<
+  K extends TType<MakeTDef<tf.Merge<TDef, { $Out: PropertyKey; $In: PropertyKey }>>>,
+  V extends AnyTType
+> extends TType<TRecordDef<K, V>> {}
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TPromise                                                      */
@@ -1442,10 +1617,10 @@ export type TPromiseDef<T extends AnyTType> = MakeTDef<{
 export class TPromise<T extends AnyTType> extends TType<TPromiseDef<T>> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Promise) && !ctx.common.async) {
-      return ctx.invalidType({ expected: ValueKind.Promise }).result();
+      return ctx.invalidType({ expected: ValueKind.Promise }).return();
     }
 
-    return ctx.result(
+    return ctx.return(
       (isKindOf(ctx.data, ValueKind.Promise) ? ctx.data : Promise.resolve(ctx.data)).then(async (awaited) =>
         this.underlying.parseAsync(awaited, ctx.common)
       )
@@ -1493,7 +1668,7 @@ export type TOptionalDef<T extends AnyTType> = MakeTDef<{
 export class TOptional<T extends AnyTType> extends TType<TOptionalDef<T>> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
-      ? ctx.result(ctx.data)
+      ? ctx.return(ctx.data)
       : this.underlying._parse(ctx.child(this.underlying, ctx.data));
   }
 
@@ -1538,7 +1713,7 @@ export type TNullableDef<T extends AnyTType> = MakeTDef<{
 export class TNullable<T extends AnyTType> extends TType<TNullableDef<T>> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Null)
-      ? ctx.result(ctx.data)
+      ? ctx.return(ctx.data)
       : this.underlying._parse(ctx.child(this.underlying, ctx.data));
   }
 
@@ -1583,7 +1758,7 @@ export type TDefinedDef<T extends AnyTType> = MakeTDef<{
 export class TDefined<T extends AnyTType> extends TType<TDefinedDef<T>> {
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
-      ? ctx.addIssue({ kind: TIssueKind.Base.Required }, this.options.messages?.[TIssueKind.Base.Required]).result()
+      ? ctx.addIssue({ kind: TIssueKind.Base.Required }, this.options.messages?.[TIssueKind.Base.Required]).return()
       : this.underlying._parse(ctx.child(this.underlying, ctx.data));
   }
 
@@ -1614,11 +1789,14 @@ export type AnyTDefined = TDefined<AnyTType>;
 /*                                                    TNonNullable                                                    */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+export type TNonNullableOptions = TOptions<{ issueKinds: ["base.forbidden"] }>;
+
 export type TNonNullableDef<T extends AnyTType> = MakeTDef<{
   $Out: Exclude<OutputOf<T>, null | undefined>;
   $In: Exclude<InputOf<T>, null | undefined>;
   $TypeName: "TNonNullable";
   $Props: { readonly underlying: T };
+  $Options: TNonNullableOptions;
 }>;
 
 export class TNonNullable<T extends AnyTType> extends TType<TNonNullableDef<T>> {
@@ -1627,9 +1805,9 @@ export class TNonNullable<T extends AnyTType> extends TType<TNonNullableDef<T>> 
       ? ctx
           .addIssue(
             { kind: TIssueKind.Base.Forbidden, payload: { types: [ValueKind.Undefined, ValueKind.Null] } },
-            this.options.messages?.[TIssueKind.Base.Required]
+            this.options.messages?.[TIssueKind.Base.Forbidden]
           )
-          .result()
+          .return()
       : this.underlying._parse(ctx.child(this.underlying, ctx.data));
   }
 
@@ -1645,7 +1823,7 @@ export class TNonNullable<T extends AnyTType> extends TType<TNonNullableDef<T>> 
     return handleUnwrapDeep(this.underlying, [TTypeName.NonNullable]);
   }
 
-  static create<T extends AnyTType>(underlying: T, options?: TOptions): TNonNullable<T> {
+  static create<T extends AnyTType>(underlying: T, options?: TNonNullableOptions): TNonNullable<T> {
     return new TNonNullable({
       typeName: TTypeName.NonNullable,
       props: { underlying },
@@ -1664,7 +1842,7 @@ export type TLazyDef<T extends AnyTType> = MakeTDef<{
   $Out: OutputOf<T>;
   $In: InputOf<T>;
   $TypeName: "TLazy";
-  $Props: { readonly getUnderlying: () => T };
+  $Props: { readonly getType: () => T };
 }>;
 
 export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> {
@@ -1673,7 +1851,7 @@ export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> {
   }
 
   get underlying(): T {
-    return this.props.getUnderlying();
+    return this.props.getType();
   }
 
   unwrap(): T {
@@ -1685,11 +1863,7 @@ export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> {
   }
 
   static create<T extends AnyTType>(getType: () => T, options?: TOptions): TLazy<T> {
-    return new TLazy({
-      typeName: TTypeName.Lazy,
-      props: { getUnderlying: getType },
-      options: processCreateOptions(options),
-    });
+    return new TLazy({ typeName: TTypeName.Lazy, props: { getType }, options: processCreateOptions(options) });
   }
 }
 
@@ -1784,8 +1958,8 @@ export class TCatch<T extends AnyTType, C extends OutputOf<T>> extends TType<TCa
     const underlyingResult = this.underlying._parse(ctx.child(this.underlying, ctx.data));
 
     return isKindOf(underlyingResult, ValueKind.Promise)
-      ? underlyingResult.then((res) => ctx.result(res.ok ? res.data : this.catchValue))
-      : ctx.result(underlyingResult.ok ? underlyingResult.data : this.catchValue);
+      ? underlyingResult.then((res) => ctx.return(res.ok ? res.data : this.catchValue))
+      : ctx.return(underlyingResult.ok ? underlyingResult.data : this.catchValue);
   }
 
   get underlying(): T {
@@ -1937,6 +2111,19 @@ export const TCast = {
 };
 
 /* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                      TMarkers                                                      */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type MaybeWithOverride<T extends readonly unknown[]> = T | [TOverrideMarker, ...T] extends infer X ? X : never;
+
+export const TOverrideMarker = Symbol("t.override");
+export type TOverrideMarker = typeof TOverrideMarker;
+
+export const TMarkers = {
+  override: TOverrideMarker,
+} as const;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 export const anyType = TAny.create;
 export const arrayType = TArray.create;
@@ -1969,6 +2156,9 @@ export const unionType = TUnion.create;
 export const unknownType = TUnknown.create;
 export const voidType = TVoid.create;
 
+export const markers = TMarkers;
+export const overrideMarker: typeof TOverrideMarker = TMarkers.override;
+
 export const global = () => TGlobal;
 
 export {
@@ -1996,6 +2186,7 @@ export {
   nullType as null,
   numberType as number,
   optionalType as optional,
+  overrideMarker as override,
   promiseType as promise,
   setType as set,
   stringType as string,

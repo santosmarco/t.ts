@@ -10,7 +10,9 @@ export const TCheckKind = {
   Integer: "integer",
   Length: "length",
   Max: "max",
+  MaxKeys: "max_keys",
   Min: "min",
+  MinKeys: "min_keys",
   Multiple: "multiple",
   Port: "port",
   Precision: "precision",
@@ -55,6 +57,30 @@ export namespace TCheck {
   export type Port = MakeTCheck<"port">;
   export type Safe = MakeTCheck<"safe">;
   export type Finite = MakeTCheck<"finite">;
+
+  export type MinKeys = MakeTCheck<"min_keys", { value: number; inclusive: boolean }>;
+  export type MaxKeys = MakeTCheck<"max_keys", { value: number; inclusive: boolean }>;
+}
+
+export function validateMin<V>(value: V, check: TCheck.Min<V>): boolean {
+  return check.inclusive ? value >= check.value : value > check.value;
+}
+
+export function validateMax<V>(value: V, check: TCheck.Max<V>): boolean {
+  return check.inclusive ? value <= check.value : value < check.value;
+}
+
+export function validateRange<V>(value: V, check: TCheck.Range<V>): boolean {
+  return {
+    "[": {
+      "]": value >= check.min && value <= check.max,
+      ")": value >= check.min && value < check.max,
+    },
+    "(": {
+      "]": value > check.min && value <= check.max,
+      ")": value > check.min && value < check.max,
+    },
+  }[check.inclusive[0] as "[" | "("][check.inclusive[1] as "]" | ")"];
 }
 
 export function sanitizeCheck<C extends TCheckBase>(check: C) {

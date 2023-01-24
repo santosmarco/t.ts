@@ -12,13 +12,6 @@ export const TIssueKind = {
     InvalidType: "base.invalid_type",
     Forbidden: "base.forbidden",
   },
-  Array: {
-    Min: "array.min",
-    Max: "array.max",
-    Length: "array.length",
-    Unique: "array.unique",
-    Sort: "array.sort",
-  },
   Number: {
     Integer: "number.integer",
     Precision: "number.precision",
@@ -29,6 +22,30 @@ export const TIssueKind = {
     Port: "number.port",
     Safe: "number.safe",
     Finite: "number.finite",
+  },
+  Array: {
+    Min: "array.min",
+    Max: "array.max",
+    Length: "array.length",
+    Range: "array.range",
+    Unique: "array.unique",
+    Sort: "array.sort",
+  },
+  Set: {
+    Min: "set.min",
+    Max: "set.max",
+    Size: "set.size",
+    Range: "set.range",
+  },
+  Buffer: {
+    Min: "buffer.min",
+    Max: "buffer.max",
+    Length: "buffer.length",
+    Range: "buffer.range",
+  },
+  Record: {
+    MinKeys: "record.min_keys",
+    MaxKeys: "record.max_keys",
   },
 } as const;
 
@@ -75,18 +92,6 @@ export namespace TIssue {
   export type InvalidType = MakeTIssue<"base.invalid_type", { expected: string; received: string }>;
   export type Forbidden = MakeTIssue<"base.forbidden", { types?: string[] }>;
 
-  export namespace Array {
-    export type Min = FromTCheck<"array.min", TCheck.Min, { received: number }>;
-    export type Max = FromTCheck<"array.max", TCheck.Max, { received: number }>;
-    export type Length = FromTCheck<"array.length", TCheck.Length, { received: number }>;
-    export type Unique = FromTCheck<
-      "array.unique",
-      TCheck.Unique,
-      { duplicates: Array<{ value: unknown; index: number }> }
-    >;
-    export type Sort = FromTCheck<"array.sort", TCheck.Sort>;
-  }
-
   export namespace Number {
     export type Integer = FromTCheck<"number.integer", TCheck.Integer>;
     export type Precision = FromTCheck<"number.precision", TCheck.Precision, { received: number }>;
@@ -98,6 +103,38 @@ export namespace TIssue {
     export type Safe = FromTCheck<"number.safe", TCheck.Safe>;
     export type Finite = FromTCheck<"number.finite", TCheck.Finite>;
   }
+
+  export namespace Array {
+    export type Min = FromTCheck<"array.min", TCheck.Min, { received: number }>;
+    export type Max = FromTCheck<"array.max", TCheck.Max, { received: number }>;
+    export type Length = FromTCheck<"array.length", TCheck.Length, { received: number }>;
+    export type Range = FromTCheck<"array.range", TCheck.Range, { received: number }>;
+    export type Unique = FromTCheck<
+      "array.unique",
+      TCheck.Unique,
+      { duplicates: Array<{ value: unknown; index: number }> }
+    >;
+    export type Sort = FromTCheck<"array.sort", TCheck.Sort>;
+  }
+
+  export namespace Set {
+    export type Min = FromTCheck<"set.min", TCheck.Min, { received: number }>;
+    export type Max = FromTCheck<"set.max", TCheck.Max, { received: number }>;
+    export type Size = FromTCheck<"set.size", TCheck.Size, { received: number }>;
+    export type Range = FromTCheck<"set.range", TCheck.Range, { received: number }>;
+  }
+
+  export namespace Buffer {
+    export type Min = FromTCheck<"buffer.min", TCheck.Min, { received: number }>;
+    export type Max = FromTCheck<"buffer.max", TCheck.Max, { received: number }>;
+    export type Length = FromTCheck<"buffer.length", TCheck.Length, { received: number }>;
+    export type Range = FromTCheck<"buffer.range", TCheck.Range, { received: number }>;
+  }
+
+  export namespace Record {
+    export type MinKeys = FromTCheck<"record.min_keys", TCheck.MinKeys, { received: number }>;
+    export type MaxKeys = FromTCheck<"record.max_keys", TCheck.MaxKeys, { received: number }>;
+  }
 }
 
 export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
@@ -105,12 +142,6 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Required
   | TIssue.InvalidType
   | TIssue.Forbidden
-  // Array
-  | TIssue.Array.Min
-  | TIssue.Array.Max
-  | TIssue.Array.Length
-  | TIssue.Array.Unique
-  | TIssue.Array.Sort
   // Number
   | TIssue.Number.Integer
   | TIssue.Number.Precision
@@ -120,6 +151,26 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Number.Multiple
   | TIssue.Number.Port
   | TIssue.Number.Safe
-  | TIssue.Number.Finite,
+  | TIssue.Number.Finite
+  // Array
+  | TIssue.Array.Min
+  | TIssue.Array.Max
+  | TIssue.Array.Length
+  | TIssue.Array.Range
+  | TIssue.Array.Unique
+  | TIssue.Array.Sort
+  // Set
+  | TIssue.Set.Min
+  | TIssue.Set.Max
+  | TIssue.Set.Size
+  | TIssue.Set.Range
+  // Buffer
+  | TIssue.Buffer.Min
+  | TIssue.Buffer.Max
+  | TIssue.Buffer.Length
+  | TIssue.Buffer.Range
+  // Record
+  | TIssue.Record.MinKeys
+  | TIssue.Record.MaxKeys,
   { readonly kind: K }
 >;

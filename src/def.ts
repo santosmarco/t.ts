@@ -1,7 +1,7 @@
 import type * as tf from "type-fest";
 import type { TCheckBase } from "./checks";
 import type { AnyTManifest, TManifest } from "./manifest";
-import type { TOptions, TOptionsProcessed } from "./options";
+import type { TOptions, ProcessedTOptions } from "./options";
 import type { TTypeName } from "./types";
 import type { Branded, HasKey } from "./utils";
 
@@ -29,7 +29,7 @@ export type MakeTDef<
         $In: In;
         $TypeName: T["$TypeName"];
         $Props: { 0: null; 1: T["$Props"] }[HasKey<T, "$Props">];
-        $Options: { 0: TOptions; 1: T["$Options"] }[HasKey<T, "$Options">];
+        $Options: ProcessedTOptions<Exclude<{ 0: TOptions; 1: T["$Options"] }[HasKey<T, "$Options">], undefined>>;
         $Manifest: { 0: TManifest<T["$Out"], In>; 1: T["$Manifest"] }[HasKey<T, "$Manifest">];
         $Checks: { 0: null; 1: T["$Checks"] }[HasKey<T, "$Checks">];
       },
@@ -41,7 +41,7 @@ export type AnyBrandedTDef = Branded<TDef, "TDef">;
 
 export type TCtorDef<T extends AnyBrandedTDef> = {
   readonly typeName: T["$TypeName"];
-  readonly options: TOptionsProcessed<T["$Options"]>;
+  readonly options: T["$Options"];
   readonly manifest?: AnyTManifest;
 } & (T["$Props"] extends null ? { readonly props?: null } : { readonly props: T["$Props"] }) &
   (T["$Checks"] extends null ? { readonly checks?: null } : { readonly checks: T["$Checks"] });
@@ -50,7 +50,7 @@ export type TRuntimeDef<T extends AnyBrandedTDef> = Branded<
   {
     readonly typeName: T["$TypeName"];
     readonly props: T["$Props"];
-    readonly options: TOptionsProcessed<T["$Options"]>;
+    readonly options: T["$Options"];
     readonly manifest: T["$Manifest"];
     readonly checks: T["$Checks"];
   },

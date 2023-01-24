@@ -5,6 +5,7 @@ import type { TLocale } from "./_base";
 const enUS: TLocale = {
   name: "en-US",
   map(issue) {
+    // Base
     switch (issue.kind) {
       case TIssueKind.Base.Required:
         return "Required";
@@ -13,29 +14,7 @@ const enUS: TLocale = {
       case TIssueKind.Base.Forbidden:
         return "Forbidden";
 
-      case TIssueKind.Array.Min:
-        return `Expected ${issue.payload.inclusive ? "at least" : "over"} ${humanizeNum(
-          issue.payload.value
-        )} ${pluralize(issue.payload.value, "item", "items")}, received ${humanizeNum(issue.payload.received)}`;
-      case TIssueKind.Array.Max:
-        return `Expected ${issue.payload.inclusive ? "at most" : "under"} ${humanizeNum(
-          issue.payload.value
-        )} ${pluralize(issue.payload.value, "item", "items")}, received ${humanizeNum(issue.payload.received)}`;
-      case TIssueKind.Array.Length:
-        return `Expected exactly ${humanizeNum(issue.payload.value)} ${pluralize(
-          issue.payload.value,
-          "item",
-          "items"
-        )}, received ${humanizeNum(issue.payload.received)}`;
-      case TIssueKind.Array.Unique:
-        return `Expected unique items, received ${humanizeNum(issue.payload.duplicates.length)} ${pluralize(
-          issue.payload.duplicates.length,
-          "duplicate",
-          "duplicates"
-        )}`;
-      case TIssueKind.Array.Sort:
-        return "Expected Array to be sorted";
-
+      // Number
       case TIssueKind.Number.Integer:
         return "Expected integer, received float";
       case TIssueKind.Number.Precision:
@@ -66,6 +45,49 @@ const enUS: TLocale = {
         return "Expected a safe number (Number.MIN_SAFE_INTEGER < x < Number.MAX_SAFE_INTEGER)";
       case TIssueKind.Number.Finite:
         return "Expected a finite number";
+
+      // Array + Set
+      case TIssueKind.Array.Min:
+      case TIssueKind.Set.Min:
+        return `Expected ${issue.payload.inclusive ? "at least" : "over"} ${humanizeNum(
+          issue.payload.value
+        )} ${pluralize(issue.payload.value, "item", "items")}, received ${humanizeNum(issue.payload.received)}`;
+      case TIssueKind.Array.Max:
+      case TIssueKind.Set.Max:
+        return `Expected ${issue.payload.inclusive ? "at most" : "under"} ${humanizeNum(
+          issue.payload.value
+        )} ${pluralize(issue.payload.value, "item", "items")}, received ${humanizeNum(issue.payload.received)}`;
+      case TIssueKind.Array.Length:
+      case TIssueKind.Set.Size:
+        return `Expected exactly ${humanizeNum(issue.payload.value)} ${pluralize(
+          issue.payload.value,
+          "item",
+          "items"
+        )}, received ${humanizeNum(issue.payload.received)}`;
+      case TIssueKind.Array.Unique:
+        return `Expected unique items, received ${humanizeNum(issue.payload.duplicates.length)} ${pluralize(
+          issue.payload.duplicates.length,
+          "duplicate",
+          "duplicates"
+        )}`;
+      case TIssueKind.Array.Sort:
+        return "Expected Array to be sorted";
+
+      // Buffer
+      case TIssueKind.Buffer.Min:
+        return `Expected ${issue.payload.inclusive ? "at least" : "over"} ${humanizeNum(
+          issue.payload.value
+        )} ${pluralize(issue.payload.value, "byte", "bytes")}, received ${humanizeNum(issue.payload.received)}`;
+      case TIssueKind.Buffer.Max:
+        return `Expected ${issue.payload.inclusive ? "at most" : "under"} ${humanizeNum(
+          issue.payload.value
+        )} ${pluralize(issue.payload.value, "byte", "bytes")}, received ${humanizeNum(issue.payload.received)}`;
+      case TIssueKind.Buffer.Length:
+        return `Expected exactly ${humanizeNum(issue.payload.value)} ${pluralize(
+          issue.payload.value,
+          "byte",
+          "bytes"
+        )}, received ${humanizeNum(issue.payload.received)}`;
 
       default:
         assertNever(issue);
