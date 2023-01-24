@@ -8,6 +8,13 @@ export type GetNestedValues<T extends Record<string, unknown>> = {
 
 export type StripKey<T, K extends keyof T> = T extends unknown ? tf.Except<T, K> : never;
 
-export type OmitNevers<T> = {
-  [K in keyof T as tf.IsEqual<T[K], never> extends true ? never : K]: T[K];
-};
+export type AtLeastOne<T> = [T, ...T[]];
+
+export const BRAND = Symbol("t.brand");
+export type BRAND = typeof BRAND;
+export type Branded<T, B> = T & { [BRAND]: B };
+export type Unbranded<T> = Omit<T, BRAND>;
+
+export function assertNever(_x: never): never {
+  throw new Error("Impossible");
+}

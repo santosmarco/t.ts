@@ -1,8 +1,7 @@
 import util from "util";
 import { TGlobal } from "./global";
 import type { TIssue, TIssueKind } from "./issues";
-import type { TLocale } from "./locales/_base";
-import { TParseContext } from "./parse";
+import type { TParseContext } from "./parse";
 import { ValueKind, isKindOf, type StripKey } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -13,7 +12,10 @@ export type TErrorMapFn<K extends TIssueKind = TIssueKind> = (issue: StripKey<TI
 export type TErrorMapObj = { readonly [K in TIssueKind]?: TErrorMapFn<K> | string };
 export type TErrorMap = TErrorMapFn | TErrorMapObj | string;
 
-export function resolveErrorMaps(maps: readonly (TErrorMap | undefined)[], locale: TLocale): TErrorMapFn {
+export function resolveErrorMaps(
+  maps: ReadonlyArray<TErrorMap | null | undefined>,
+  defaultMapFn: TErrorMapFn
+): TErrorMapFn {
   return (issue) => {
     const msgs = [...maps]
       .reverse()
@@ -34,9 +36,9 @@ export function resolveErrorMaps(maps: readonly (TErrorMap | undefined)[], local
 
         return fnOrMsg?.(issue as never);
       })
-      .filter((msg): msg is string => !!msg);
+      .filter((msg): msg is string => Boolean(msg));
 
-    return msgs[0] ?? locale.map(issue);
+    return msgs[0] ?? defaultMapFn(issue);
   };
 }
 
@@ -53,14 +55,30 @@ export function defaultErrorFormatter(issues: readonly TIssue[]): string {
 }
 
 export class TError extends Error {
-  readonly name = "TError";
+  get name() {
+    return "TError";
+  }
 
   private readonly _ctx: TParseContext;
 
   constructor(ctx: TParseContext) {
     super();
 
+    const actualProto = new.target.prototype;
+    if (Object.setPrototypeOf) {
+      Object.setPrototypeOf(this, actualProto);
+    } else {
+      // eslint-disable-next-line no-proto
+      (this as Record<string, unknown>).__proto__ = actualProto;
+    }
+
     this._ctx = ctx.root;
+
+    Object.keys(this).forEach((k) =>
+      Object.defineProperty(this, k, {
+        enumerable: !/^_\w*/.exec(String(k)),
+      })
+    );
   }
 
   get issues(): readonly TIssue[] {

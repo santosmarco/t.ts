@@ -1,4 +1,4 @@
-const toString = Object.prototype.toString;
+const { toString } = Object.prototype;
 
 export const ValueKind = {
   Arguments: "arguments",
@@ -51,7 +51,7 @@ export type ValueKindMap<T extends ValueKind> = {
   "Set Iterator": IterableIterator<unknown>;
   "String Iterator": IterableIterator<string>;
   arguments: IArguments;
-  Array: Array<unknown>;
+  Array: unknown[];
   bigint: bigint;
   boolean: boolean;
   Buffer: Buffer;
@@ -61,7 +61,7 @@ export type ValueKindMap<T extends ValueKind> = {
   Float32Array: Float32Array;
   Float64Array: Float64Array;
   function: Function;
-  Generator: Generator<unknown, unknown, unknown>;
+  Generator: Generator<unknown, unknown>;
   GeneratorFunction: GeneratorFunction;
   Int16Array: Int16Array;
   Int32Array: Int32Array;
@@ -89,7 +89,7 @@ export type ValueKindMap<T extends ValueKind> = {
 }[T];
 
 export function kindOf(x: unknown) {
-  if (x === void 0) return ValueKind.Undefined;
+  if (x === undefined) return ValueKind.Undefined;
   if (x === null) return ValueKind.Null;
 
   let type: string = typeof x;
@@ -98,6 +98,7 @@ export function kindOf(x: unknown) {
   if (type === "number") {
     return Number.isNaN(x) ? ValueKind.NaN : ValueKind.Number;
   }
+
   if (type === "bigint") return ValueKind.BigInt;
   if (type === "symbol") return ValueKind.Symbol;
   if (type === "function") {
@@ -150,6 +151,9 @@ export function kindOf(x: unknown) {
       return ValueKind.Float32Array;
     case "Float64Array":
       return ValueKind.Float64Array;
+
+    default:
+      break;
   }
 
   if (isGeneratorObj(x)) {
@@ -171,6 +175,9 @@ export function kindOf(x: unknown) {
       return ValueKind.StringIterator;
     case "[object Array Iterator]":
       return ValueKind.ArrayIterator;
+
+    default:
+      break;
   }
 
   // Other
@@ -184,20 +191,18 @@ export function isKindOf(x: unknown, k: ValueKind | ValueKind[]) {
 }
 
 export function isPlainObject(x: unknown) {
-  let ctor, proto;
-
   if (!isKindOf(x, ValueKind.Object)) return false;
 
   // If has modified constructor
-  ctor = x.constructor;
+  const ctor = x.constructor;
   if (ctor === undefined) return true;
 
   // If has modified prototype
-  proto = ctor.prototype;
+  const proto = ctor.prototype as unknown;
   if (!isKindOf(proto, ValueKind.Object)) return false;
 
   // If constructor does not have an Object-specific method
-  if (!proto.hasOwnProperty("isPrototypeOf")) {
+  if (!Object.prototype.hasOwnProperty.call(proto, "isPrototypeOf")) {
     return false;
   }
 
@@ -209,7 +214,7 @@ function ctorName(x: unknown): string | null {
   return typeof x === "object" && x !== null && typeof x.constructor === "function" ? x.constructor.name : null;
 }
 
-function isArray(x: unknown): x is Array<unknown> {
+function isArray(x: unknown): x is unknown[] {
   if (Array.isArray) return Array.isArray(x);
   return x instanceof Array;
 }
@@ -285,10 +290,11 @@ function isArguments(x: unknown): x is typeof arguments {
       return true;
     }
   } catch (err) {
-    if (isError(err) && err.message.indexOf("callee") !== -1) {
+    if (isError(err) && err.message.includes("callee")) {
       return true;
     }
   }
+
   return false;
 }
 
@@ -300,7 +306,8 @@ function isBuffer(x: unknown): x is Buffer {
     "isBuffer" in x.constructor &&
     typeof x.constructor.isBuffer === "function"
   ) {
-    return x.constructor.isBuffer(x);
+    return Boolean(x.constructor.isBuffer(x));
   }
+
   return false;
 }

@@ -5,11 +5,11 @@ import type { AnyBrandedTDef } from "./def";
 /*                                                      TManifest                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export interface Descriptive {
+export type Descriptive = {
   readonly title?: string;
   readonly summary?: string;
   readonly description?: string;
-}
+};
 
 export type DescriptiveWithValue<T> = tf.Simplify<
   Descriptive & {
@@ -17,16 +17,16 @@ export type DescriptiveWithValue<T> = tf.Simplify<
   }
 >;
 
-export interface TManifest<O, I = O> extends Descriptive {
+export type TManifest<O, I = O> = {
   readonly examples?: {
-    readonly in?: readonly DescriptiveWithValue<I>[];
-    readonly out?: readonly DescriptiveWithValue<O>[];
+    readonly in?: ReadonlyArray<DescriptiveWithValue<I>>;
+    readonly out?: ReadonlyArray<DescriptiveWithValue<O>>;
   };
-  readonly tags?: readonly DescriptiveWithValue<string>[];
-  readonly notes?: readonly DescriptiveWithValue<string>[];
+  readonly tags?: ReadonlyArray<DescriptiveWithValue<string>>;
+  readonly notes?: ReadonlyArray<DescriptiveWithValue<string>>;
   readonly unit?: DescriptiveWithValue<string>;
   readonly meta?: Readonly<Record<string, unknown>>;
-}
+} & Descriptive;
 
 export type TRetrievableManifest<D extends AnyBrandedTDef> = D["$Manifest"] & {
   readonly label?: string;

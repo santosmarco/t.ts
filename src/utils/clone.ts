@@ -1,11 +1,10 @@
 import type * as tf from "type-fest";
 import { ValueKind, isKindOf, isPlainObject } from "./kind-of";
-import { opacify } from "./objects";
+import { enbrand } from "./objects";
+import type { Branded } from "./types";
 
-const valueOf = Symbol.prototype.valueOf;
-
-export function cloneDeep<T>(x: T): tf.Opaque<T, "__deepCloned"> {
-  return opacify(
+export function cloneDeep<T>(x: T): Branded<T, "__deepCloned"> {
+  return enbrand(
     ((): T => {
       if (isKindOf(x, ValueKind.Object)) {
         return cloneObjectDeep(x);
@@ -15,7 +14,7 @@ export function cloneDeep<T>(x: T): tf.Opaque<T, "__deepCloned"> {
         return cloneArrayDeep(x);
       }
 
-      return clone(x);
+      return clone(x) as T;
     })(),
     "__deepCloned"
   );
@@ -24,19 +23,26 @@ export function cloneDeep<T>(x: T): tf.Opaque<T, "__deepCloned"> {
 function cloneObjectDeep<T extends object>(x: T): T {
   if (isPlainObject(x)) {
     const res = Reflect.construct(x.constructor as new () => T, []);
+
     for (const k in x) {
-      res[k] = cloneDeep(x[k]);
+      if (Object.prototype.hasOwnProperty.call(x, k)) {
+        res[k] = cloneDeep(x[k]);
+      }
     }
+
     return res;
   }
+
   return x;
 }
 
-function cloneArrayDeep<T extends Array<unknown>>(x: T): T {
+function cloneArrayDeep<T extends unknown[]>(x: T): T {
   const res = Reflect.construct(x.constructor as new (len: number) => T, [x.length]);
+
   for (let i = 0; i < x.length; i++) {
     res[i] = cloneDeep(x[i]);
   }
+
   return res;
 }
 
@@ -46,7 +52,7 @@ function clone(x: unknown) {
   }
 
   if (isKindOf(x, ValueKind.Object)) {
-    return Object.assign({}, x);
+    return { ...x };
   }
 
   if (isKindOf(x, ValueKind.Date)) {
@@ -90,21 +96,21 @@ function clone(x: unknown) {
   }
 
   if (isKindOf(x, ValueKind.Error)) {
-    return Object.create(x);
+    return Object.create(x) as typeof x;
   }
 
   return x;
 }
 
 function cloneRegExp(x: RegExp): RegExp {
-  const flags = x.flags !== void 0 ? x.flags : /\w+$/.exec(String(x)) || void 0;
+  const flags = x.flags ?? /\w+$/.exec(String(x)) ?? undefined;
   const re = Reflect.construct(x.constructor as typeof RegExp, [x.source, flags]);
   re.lastIndex = x.lastIndex;
   return re;
 }
 
 function cloneTypedArray<T extends tf.TypedArray>(x: T): T {
-  return Reflect.construct(x.constructor, [x.buffer, x.byteOffset, x.length]);
+  return Reflect.construct(x.constructor, [x.buffer, x.byteOffset, x.length]) as T;
 }
 
 function cloneBuffer(x: Buffer): Buffer {
@@ -115,5 +121,5 @@ function cloneBuffer(x: Buffer): Buffer {
 }
 
 function cloneSymbol(x: symbol): symbol {
-  return valueOf ? Object(valueOf.call(x)) : {};
+  return x;
 }

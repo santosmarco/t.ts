@@ -2,29 +2,37 @@ import type * as tf from "type-fest";
 import { TError, resolveErrorMaps } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
-import type { TOptions, TParseOptions } from "./options";
+import { processCreateOptions, type TParseOptionsProcessed } from "./options";
 import type { AnyTType } from "./types";
-import { ValueKind, isKindOf, kindOf, type StripKey } from "./utils";
+import { ValueKind, conditionalOmitDeep, isKindOf, kindOf } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TParse                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TParseResultSuccess<T> = {
+export type TParseResultSuccess<$O, $I = $O> = {
   readonly ok: true;
-  readonly data: T;
+  readonly data: $O;
   readonly error?: never;
+  readonly warnings?: readonly TIssue[];
 };
 
-export type TParseResultFailure = {
+export type TParseResultFailure<$O, $I = $O> = {
   readonly ok: false;
   readonly data?: never;
   readonly error: TError;
+  readonly warnings?: readonly TIssue[];
 };
 
-export type TParseResultSync<T> = TParseResultSuccess<T> | TParseResultFailure;
-export type TParseResultAsync<T> = Promise<TParseResultSync<T>>;
-export type TParseResult<T> = TParseResultSync<T> | TParseResultAsync<T>;
+export type TParseResultSync<$O, $I = $O> = TParseResultSuccess<$O, $I> | TParseResultFailure<$O, $I>;
+export type TParseResultAsync<$O, $I = $O> = Promise<TParseResultSync<$O, $I>>;
+export type TParseResult<$O, $I = $O> = TParseResultSync<$O, $I> | TParseResultAsync<$O, $I>;
+
+export type TParseResultSuccessOf<T extends AnyTType> = TParseResultSuccess<T["$O"], T["$I"]>;
+export type TParseResultFailureOf<T extends AnyTType> = TParseResultFailure<T["$O"], T["$I"]>;
+export type TParseResultSyncOf<T extends AnyTType> = TParseResultSync<T["$O"], T["$I"]>;
+export type TParseResultAsyncOf<T extends AnyTType> = TParseResultAsync<T["$O"], T["$I"]>;
+export type TParseResultOf<T extends AnyTType> = TParseResultSyncOf<T> | TParseResultAsyncOf<T>;
 
 export const TParseContextStatus = {
   Valid: "valid",
@@ -33,37 +41,38 @@ export const TParseContextStatus = {
 
 export type TParseContextStatus = typeof TParseContextStatus[keyof typeof TParseContextStatus];
 
-export type TParseContextPath = readonly (string | number | symbol)[];
+export type TParseContextPath = ReadonlyArray<string | number | symbol>;
 
 export type TParseContextIssueInput<K extends TIssueKind> = K extends unknown
-  ? tf.Except<TIssue<K>, keyof TIssueBase<K>>
+  ? tf.Except<TIssue<K>, keyof tf.Except<TIssueBase<K>, "kind" | "payload">>
   : never;
 
-export type TParseContextCommon = TParseOptions & {
+export type TParseContextCommon<T extends AnyTType> = TParseOptionsProcessed<T["options"]> & {
   readonly async: boolean;
 };
 
-export type TParseContextDef = {
-  readonly t: AnyTType;
+export type TParseContextDef<T extends AnyTType> = {
+  readonly t: T;
   readonly data: unknown;
   readonly path: TParseContextPath;
   readonly parent: TParseContext | null;
-  readonly common: TParseContextCommon;
+  readonly common: TParseContextCommon<T>;
 };
 
-export class TParseContext {
+export class TParseContext<T extends AnyTType = AnyTType> {
   private _status: TParseContextStatus;
   private _data: unknown;
 
-  private readonly _t: AnyTType;
-  private readonly _path: readonly (string | number)[];
+  private readonly _t: T;
+  private readonly _path: ReadonlyArray<string | number>;
   private readonly _parent: TParseContext | null;
-  private readonly _common: TParseContextCommon;
+  private readonly _common: TParseContextCommon<T>;
 
   private readonly _children: TParseContext[];
   private readonly _issues: TIssue[];
+  private readonly _warnings: TIssue[];
 
-  private constructor(def: TParseContextDef) {
+  private constructor(def: TParseContextDef<T>) {
     const { t, data, path, parent, common } = def;
 
     this._status = TParseContextStatus.Valid;
@@ -76,6 +85,7 @@ export class TParseContext {
 
     this._children = [];
     this._issues = [];
+    this._warnings = [];
   }
 
   get status() {
@@ -94,7 +104,7 @@ export class TParseContext {
     return this._t;
   }
 
-  get path(): TParseContextPath {
+  get path() {
     return this._path;
   }
 
@@ -106,8 +116,8 @@ export class TParseContext {
     return this.parent?.root ?? this;
   }
 
-  get common(): TParseContextCommon & TOptions {
-    return { ...this._common, ...this.t.options };
+  get common(): TParseContextCommon<T> {
+    return this._common;
   }
 
   get ownChildren(): readonly TParseContext[] {
@@ -126,6 +136,14 @@ export class TParseContext {
     return this.ownIssues.concat(this.ownChildren.flatMap((child) => child.allIssues));
   }
 
+  get ownWarnings(): readonly TIssue[] {
+    return this._warnings;
+  }
+
+  get allWarnings(): readonly TIssue[] {
+    return this.ownWarnings.concat(this.ownChildren.flatMap((child) => child.allWarnings));
+  }
+
   get valid(): boolean {
     return this.status === TParseContextStatus.Valid && this.allChildren.every((child) => child.valid);
   }
@@ -142,105 +160,106 @@ export class TParseContext {
     return this;
   }
 
-  child(t: AnyTType, data: unknown, path: TParseContextPath = []): TParseContext {
+  child<U extends AnyTType>(t: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
     const child = new TParseContext({
       t,
       data,
-      path: this.path.concat(path),
+      path: [...this.path, ...path],
       parent: this,
-      common: this.common,
+      common: processTParseContextCommon(t, this.common),
     });
     this._children.push(child);
     return child;
   }
 
-  clone(t: AnyTType, data: unknown, path: TParseContextPath = []): TParseContext {
+  clone<U extends AnyTType>(t: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
     return new TParseContext({
       t,
       data,
-      path: this.path.concat(path),
+      path: [...this.path, ...path],
       parent: null,
-      common: this.common,
+      common: processTParseContextCommon(t, this.common),
     });
   }
 
-  addIssue<K extends TIssueKind>(
-    kind: K,
-    ...args: "payload" extends tf.OptionalKeysOf<TParseContextIssueInput<K>>
-      ? [message: string | undefined]
-      : [payload: TParseContextIssueInput<K>["payload"], message: string | undefined]
-  ): this {
-    const [message, payload] = isKindOf(args[0], ValueKind.String)
-      ? ([args[0], undefined] as const)
-      : ([args[1], args[0]] as const);
-
-    if (!this.valid) {
-      if (this.common.abortEarly) {
+  addIssue<K extends TIssueKind>(issue: TParseContextIssueInput<K>, message: string | undefined): this {
+    if (!this.common.warnOnly) {
+      if (this.valid) {
+        this.invalidate();
+      } else if (this.common.abortEarly) {
         return this;
       }
-    } else {
-      this.invalidate();
     }
 
     const locale = TGlobal.getLocale();
+    const globalErrorMap = TGlobal.getErrorMap();
+
+    const sanitizedIssue = conditionalOmitDeep(issue, ValueKind.Function);
 
     const partialIssue = {
-      kind,
+      ...sanitizedIssue,
       data: this.data,
       path: this.path,
       label: this.common.label ?? generateIssueLabel(this.path, locale.defaultLabel),
-      ...(payload && { payload }),
-    } as StripKey<TIssue<K>, "message">;
+      ...(this.common.warnOnly && { warning: true }),
+    };
+
+    console.log(this.t.typeName, this.common);
 
     const issueMsg =
       message ??
       resolveErrorMaps(
-        [this.common.contextualErrorMap, this.common.schemaErrorMap, TGlobal.getErrorMap()],
-        locale
+        [this.common.contextualErrorMap, this.common.schemaErrorMap, globalErrorMap],
+        locale.map
       )(partialIssue);
 
     const fullIssue = { ...partialIssue, message: issueMsg };
 
-    this._issues.push(fullIssue);
+    if (this.common.warnOnly) {
+      this._warnings.push(fullIssue);
+    } else {
+      this._issues.push(fullIssue);
+    }
 
     return this;
   }
 
   invalidType({ expected }: { readonly expected: string }) {
     if (this.dataKind === ValueKind.Undefined) {
-      return this.addIssue(TIssueKind.Base.Required, this.common.messages?.[TIssueKind.Base.Required]);
+      return this.addIssue({ kind: TIssueKind.Base.Required }, this.common.messages?.[TIssueKind.Base.Required]);
     }
 
     return this.addIssue(
-      TIssueKind.Base.InvalidType,
-      { received: this.dataKind, expected },
+      { kind: TIssueKind.Base.InvalidType, payload: { received: this.dataKind, expected } },
       this.common.messages?.[TIssueKind.Base.InvalidType]
     );
   }
 
-  abort(): TParseResultFailure {
-    if (this.valid) {
-      this.invalidate();
-    }
-
-    return {
-      ok: false,
-      error: new TError(this),
+  result<U extends T["$O"]>(data?: U): TParseResultSyncOf<T> {
+    const base = {
+      ...(this.allWarnings.length && { warnings: this.allWarnings }),
     };
-  }
 
-  result<T>(data: T): TParseResultSync<T> {
-    if (!this.valid) {
-      return this.abort();
+    if (!this.valid && !this.common.warnOnly) {
+      return {
+        ...base,
+        ok: false,
+        error: new TError(this),
+      };
     }
 
     return {
+      ...base,
       ok: true,
-      data,
+      data: arguments.length > 0 ? data : this.data,
     };
   }
 
-  static createSync(t: AnyTType, data: unknown, options: TParseOptions | undefined): TParseContext {
+  static createSync<T extends AnyTType>(
+    t: T,
+    data: unknown,
+    options: TParseOptionsProcessed<T["options"]>
+  ): TParseContext<T> {
     return new TParseContext({
       t,
       data,
@@ -250,7 +269,11 @@ export class TParseContext {
     });
   }
 
-  static createAsync(t: AnyTType, data: unknown, options: TParseOptions | undefined): TParseContext {
+  static createAsync<T extends AnyTType>(
+    t: T,
+    data: unknown,
+    options: TParseOptionsProcessed<T["options"]>
+  ): TParseContext<T> {
     return new TParseContext({
       t,
       data,
@@ -261,14 +284,22 @@ export class TParseContext {
   }
 }
 
+function processTParseContextCommon<T extends AnyTType, U extends AnyTType>(
+  t: T,
+  common: TParseContextCommon<U>
+): TParseContextCommon<T> {
+  const processedTOpts = processCreateOptions(t.options);
+
+  return {
+    ...common,
+    ...processedTOpts,
+  };
+}
+
 function generateIssueLabel(path: TParseContextPath, defaultValue: string): string {
   let label = "";
 
-  for (let segment of path) {
-    if (isKindOf(segment, ValueKind.Symbol)) {
-      segment = String(segment);
-    }
-
+  for (const segment of path) {
     if (isKindOf(segment, ValueKind.String)) {
       if (label) {
         label += ".";
@@ -276,12 +307,16 @@ function generateIssueLabel(path: TParseContextPath, defaultValue: string): stri
 
       label += segment;
     } else {
-      label += `[${segment}]`;
+      label += `[${String(segment)}]`;
     }
   }
 
   if (!label) {
     return defaultValue;
+  }
+
+  if (label.startsWith("[")) {
+    return defaultValue + label;
   }
 
   return label;
