@@ -22,7 +22,20 @@ import {
   type TParseOptions,
 } from "./options";
 import { TParseContext, type TParseResultOf, type TParseResultSyncOf } from "./parse";
-import { ValueKind, assertNever, cloneDeep, debrand, isKindOf, tail, type AtLeastOne, kindOf } from "./utils";
+import {
+  ValueKind,
+  assertNever,
+  cloneDeep,
+  debrand,
+  filterOut,
+  includes,
+  isKindOf,
+  kindOf,
+  tail,
+  type AtLeastOne,
+  type FilterOut,
+  type UnionToTuple,
+} from "./utils";
 
 export const TTypeName = {
   Any: "TAny",
@@ -34,10 +47,13 @@ export const TTypeName = {
   Date: "TDate",
   Default: "TDefault",
   Defined: "TDefined",
+  Enum: "TEnum",
   False: "TFalse",
   Intersection: "TIntersection",
   Lazy: "TLazy",
+  Literal: "TLiteral",
   NaN: "TNaN",
+  NativeEnum: "TNativeEnum",
   Never: "TNever",
   NonNullable: "TNonNullable",
   Null: "TNull",
@@ -53,7 +69,6 @@ export const TTypeName = {
   Undefined: "TUndefined",
   Union: "TUnion",
   Unknown: "TUnknown",
-  Literal: "TLiteral",
   Void: "TVoid",
 } as const;
 
@@ -1063,7 +1078,7 @@ export class TSymbol extends TType<TSymbolDef> {
 
 export type TLiteralValue = string | number | bigint | boolean | symbol | null | undefined;
 
-export type TLiteralOptions = TOptions<{ issueKinds: ["literal.mismatch"] }>;
+export type TLiteralOptions = TOptions<{ issueKinds: ["literal.invalid"] }>;
 
 export type TLiteralDef<T extends TLiteralValue> = MakeTDef<{
   $Out: T;
@@ -1078,18 +1093,22 @@ export class TLiteral<T extends TLiteralValue> extends TType<TLiteralDef<T>> {
     const kindOfData = kindOf(ctx.data);
 
     if (this.value !== ctx.data) {
-      return ctx
-        .addIssue(
+      if (kindOfValue === kindOfData) {
+        ctx.addIssue(
           {
-            kind: TIssueKind.Literal.Mismatch,
-            payload: {
-              expected: this.value,
-              received: kindOfValue === kindOfData ? { value: ctx.data as TLiteralValue } : { type: kindOfData },
-            },
+            kind: TIssueKind.Literal.Invalid,
+            payload: { expected: this.value, received: { value: ctx.data as TLiteralValue } },
           },
-          this.options.messages[TIssueKind.Literal.Mismatch]
-        )
-        .return();
+          this.options.messages[TIssueKind.Literal.Invalid]
+        );
+      } else {
+        ctx.addIssue(
+          { kind: TIssueKind.Literal.Invalid, payload: { expected: this.value, received: { type: kindOfData } } },
+          this.options.messages[TIssueKind.Literal.Invalid]
+        );
+      }
+
+      return ctx.return();
     }
 
     return ctx.return(ctx.data as T);
@@ -1108,41 +1127,151 @@ export class TLiteral<T extends TLiteralValue> extends TType<TLiteralDef<T>> {
 /*                                                        TEnum                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TEnumValues = AtLeastOne<string | number>;
+export type TEnumValue = string | number;
+export type TEnumValues = AtLeastOne<TEnumValue>;
 
-export type TEnumDef<T extends TEnumValues> = MakeTDef<{
+export type EnumLike = {
+  readonly [x: string]: string | number;
+  readonly [y: number]: string;
+};
+
+export type MakeEnum<T extends readonly TEnumValue[]> = { [K in T[number]]: K };
+
+export type TEnumOptions = TOptions<{ issueKinds: ["enum.invalid"] }>;
+
+export type TEnumDef<T extends readonly TEnumValue[]> = MakeTDef<{
   $Out: T[number];
   $TypeName: "TEnum";
   $Props: { readonly values: T };
+  $Options: TEnumOptions;
 }>;
 
-export class TEnum<T extends TEnumValues> extends TType<TEnumDef<T>> {
-  _parse(ctx: TParseContext<this>) {
-    const kindsOfValue = [...new Set(this.values.map((v) => kindOf(v)))];
-    const kindOfData = kindOf(ctx.data);
+function parseEnum<T extends AnyTType>(
+  ctx: TParseContext<T>,
+  values: readonly TEnumValue[],
+  invalidMsg: string | undefined
+) {
+  const validKinds = [...new Set(values.map((v) => kindOf(v)))];
+  const kindOfData = kindOf(ctx.data);
 
-    if (!this.values.includes(ctx.data)) {
-      return ctx
-        .addIssue(
-          {
-            kind: TIssueKind.Literal.Mismatch,
-            payload: {
-              expected: this.values,
-              received: kindOfValue === kindOfData ? { value: ctx.data as TLiteralValue } : { type: kindOfData },
-            },
-          },
-          this.options.messages[TIssueKind.Literal.Mismatch]
-        )
-        .return();
+  if (!includes(values, ctx.data)) {
+    if (validKinds.includes(kindOfData)) {
+      ctx.addIssue(
+        {
+          kind: TIssueKind.Enum.Invalid,
+          payload: { expected: values, received: { value: ctx.data as TEnumValue } },
+        },
+        invalidMsg
+      );
+    } else {
+      ctx.addIssue(
+        { kind: TIssueKind.Enum.Invalid, payload: { expected: values, received: { type: kindOfData } } },
+        invalidMsg
+      );
     }
+
+    return ctx.return();
+  }
+
+  return ctx.return(ctx.data);
+}
+
+export class TEnum<T extends readonly TEnumValue[]> extends TType<TEnumDef<T>> {
+  _parse(ctx: TParseContext<this>) {
+    return parseEnum(ctx, this.values, this.options.messages[TIssueKind.Enum.Invalid]);
   }
 
   get values(): T {
     return this.props.values;
   }
 
-  static create<T extends TEnumValues>(values: T, options?: TOptions): TEnum<T> {
-    return new TEnum({ typeName: TTypeName.Enum, props: { values }, options: processCreateOptions(options) });
+  get enum(): MakeEnum<T> {
+    // eslint-disable-next-line @typescript-eslint/prefer-reduce-type-parameter
+    return this.values.reduce((acc, v) => ({ ...acc, [v]: v }), {} as MakeEnum<T>);
+  }
+
+  extract<U extends AtLeastOne<T[number]>>(values: U): TEnum<U> {
+    return new TEnum<U>({ ...this._def, props: { values } });
+  }
+
+  exclude<U extends AtLeastOne<T[number]>>(
+    values: U
+  ): U["length"] extends T["length"] ? TNever : TEnum<FilterOut<T, U[number]>>;
+  exclude<U extends AtLeastOne<T[number]>>(values: U) {
+    const excluded = filterOut(this.values, values);
+
+    if ((excluded as unknown[]).length <= 0) {
+      return TNever.create(pickTransferrableOptions(this.options));
+    }
+
+    return new TEnum<FilterOut<T, U[number]>>({ ...this._def, props: { values: excluded } });
+  }
+
+  static create = Object.freeze(
+    Object.assign(TEnum._create, {
+      native<T extends EnumLike>(enum_: T, options?: TEnumOptions): TNativeEnum<T> {
+        return TNativeEnum.create(enum_, options);
+      },
+    })
+  );
+
+  private static _create<T extends string | number, U extends AtLeastOne<T>>(
+    values: U,
+    options?: TEnumOptions
+  ): TEnum<U>;
+  private static _create<T extends EnumLike>(enum_: T, options?: TEnumOptions): TNativeEnum<T>;
+  private static _create(valuesOrEnum: TEnumValues | EnumLike, options?: TEnumOptions) {
+    if (Array.isArray(valuesOrEnum)) {
+      return new TEnum({
+        typeName: TTypeName.Enum,
+        props: { values: valuesOrEnum as TEnumValues },
+        options: processCreateOptions(options),
+      });
+    }
+
+    return TNativeEnum.create(valuesOrEnum as EnumLike, options);
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                     TNativeEnum                                                    */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TNativeEnumDef<T extends EnumLike> = MakeTDef<{
+  $Out: T[keyof T];
+  $TypeName: "TNativeEnum";
+  $Props: { readonly enum: T };
+  $Options: TEnumOptions;
+}>;
+
+function getValidEnumValues(enum_: EnumLike) {
+  const validKeys = Object.keys(enum_).filter((k) => {
+    const x = enum_[k];
+    return x !== undefined && typeof enum_[x] !== "number";
+  });
+  return validKeys.map((k) => enum_[k]).filter((x): x is NonNullable<typeof x> => x !== undefined);
+}
+
+export class TNativeEnum<T extends EnumLike> extends TType<TNativeEnumDef<T>> {
+  _parse(ctx: TParseContext<this>) {
+    const validValues = getValidEnumValues(this.enum);
+    return parseEnum(ctx, validValues, this.options.messages[TIssueKind.Enum.Invalid]);
+  }
+
+  get enum(): T {
+    return this.props.enum;
+  }
+
+  get values(): UnionToTuple<T[keyof T]> {
+    return getValidEnumValues(this.enum) as UnionToTuple<T[keyof T]>;
+  }
+
+  static create<T extends EnumLike>(enum_: T, options?: TEnumOptions): TNativeEnum<T> {
+    return new TNativeEnum({
+      typeName: TTypeName.NativeEnum,
+      props: { enum: enum_ },
+      options: processCreateOptions(options),
+    });
   }
 }
 
@@ -1202,7 +1331,9 @@ function finalizeArray<T extends AnyTType, U>(
           { kind: TIssueKind.Array.Unique, payload: { ...sanitizeCheck(check), duplicates } },
           check.message
         );
-        if (ctx.common.abortEarly) return ctx.return();
+        if (ctx.common.abortEarly) {
+          return ctx.return();
+        }
       }
     } else if (check.kind === TCheckKind.Sort) {
       const sorted = check.comparator
@@ -1216,7 +1347,9 @@ function finalizeArray<T extends AnyTType, U>(
         result = sorted;
       } else if (!_result.every((v, i) => v === sorted[i])) {
         ctx.addIssue({ kind: TIssueKind.Array.Sort, payload: sanitizeCheck(check) }, check.message);
-        if (ctx.common.abortEarly) return ctx.return();
+        if (ctx.common.abortEarly) {
+          return ctx.return();
+        }
       }
     } else {
       assertNever(check);
@@ -1290,7 +1423,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
         entries.map(async ([i, v]) => {
           const parsed = await element._parseAsync(ctx.child(element, v, [i]));
           if (parsed.ok) {
-            result.push(parsed.data);
+            result[i] = parsed.data;
           } else if (ctx.common.abortEarly) {
             return Promise.reject();
           }
@@ -2440,11 +2573,13 @@ export const coerceType = TCoerce;
 export const dateType = TDate.create;
 export const defaultType = TDefault.create;
 export const definedType = TDefined.create;
+export const enumType = TEnum.create;
 export const falseType = TFalse.create;
 export const intersectionType = TIntersection.create;
 export const lazyType = TLazy.create;
 export const literalType = TLiteral.create;
 export const nanType = TNaN.create;
+export const nativeEnumType = TNativeEnum.create;
 export const neverType = TNever.create;
 export const nonnullableType = TNonNullable.create;
 export const nullableType = TNullable.create;
@@ -2482,12 +2617,14 @@ export {
   defaultType as def,
   definedType as defined,
   definedType as required,
+  enumType as enum,
   falseType as false,
   intersectionType as and,
   intersectionType as intersection,
   lazyType as lazy,
   literalType as literal,
   nanType as nan,
+  nativeEnumType as nativeEnum,
   neverType as never,
   nonnullableType as nonnullable,
   nullableType as nullable,

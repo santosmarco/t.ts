@@ -1,3 +1,4 @@
+import type * as tf from "type-fest";
 import type { TErrorMap } from "./error";
 import type { TIssueKind } from "./issues";
 import { BRAND, enbrand, pick, type Branded } from "./utils";
@@ -8,7 +9,7 @@ export type TOptionsOpts = {
   readonly issueKinds?: ReadonlyArray<Exclude<TIssueKind, "base.required" | "base.invalid_type">>;
 };
 
-export type TOptions<T extends TOptionsOpts | null = null> = {
+export type TOptions<T extends TOptionsOpts | null = null> = tf.Simplify<{
   readonly abortEarly?: boolean;
   readonly label?: string;
   readonly schemaErrorMap?: TErrorMap;
@@ -19,7 +20,7 @@ export type TOptions<T extends TOptionsOpts | null = null> = {
       | "base.invalid_type"
       | (T extends { readonly issueKinds: ReadonlyArray<infer U extends string> } ? U : never)]?: string;
   };
-};
+}> & {};
 
 export type AnyTOptions = TOptions<Required<TOptionsOpts>>;
 

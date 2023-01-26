@@ -44,4 +44,4 @@ import { t } from "./src";
 //   .catch(console.log);
 // // Console.log(joi.object().pattern(/aaa/, joi.string()).validate({ a: 2 }, { stripUnknown: false }).error.details);
 
-console.log(t.literal(true).warnOnly().safeParse(false));
+// console.log(t.literal(true).warnOnly().safeParse(false));

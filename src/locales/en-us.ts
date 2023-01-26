@@ -17,11 +17,17 @@ const enUS: TLocale = {
         return "Forbidden";
 
       // Literal
-      case TIssueKind.Literal.Mismatch:
+      case TIssueKind.Literal.Invalid:
         return `Expected the literal value ${printValue(issue.payload.expected, true)}, received ${
           "value" in issue.payload.received
             ? printValue(issue.payload.received.value, true)
             : issue.payload.received.type
+        }`;
+
+      // Enum
+      case TIssueKind.Enum.Invalid:
+        return `Expected one of ${issue.payload.expected.map((v) => printValue(v)).join(" | ")}, received ${
+          "value" in issue.payload.received ? printValue(issue.payload.received.value) : issue.payload.received.type
         }`;
 
       // Number

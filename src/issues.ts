@@ -1,7 +1,7 @@
 import type * as tf from "type-fest";
 import type { TCheck, TCheckBase } from "./checks";
 import { type TError } from "./error";
-import { type TLiteralValue } from "./types";
+import { type TEnumValue, type TEnumValues, type TLiteralValue } from "./types";
 import type { GetNestedValues } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -15,7 +15,10 @@ export const TIssueKind = {
     Forbidden: "base.forbidden",
   },
   Literal: {
-    Mismatch: "literal.mismatch",
+    Invalid: "literal.invalid",
+  },
+  Enum: {
+    Invalid: "enum.invalid",
   },
   Number: {
     Integer: "number.integer",
@@ -99,9 +102,19 @@ export namespace TIssue {
   export type Forbidden = MakeTIssue<"base.forbidden", { types?: string[] }>;
 
   export namespace Literal {
-    export type Mismatch = MakeTIssue<
-      "literal.mismatch",
+    export type Invalid = MakeTIssue<
+      "literal.invalid",
       { expected: TLiteralValue; received: { value: TLiteralValue; type?: never } | { value?: never; type: string } }
+    >;
+  }
+
+  export namespace Enum {
+    export type Invalid = MakeTIssue<
+      "enum.invalid",
+      {
+        expected: readonly TEnumValue[];
+        received: { value: TEnumValue; type?: never } | { value?: never; type: string };
+      }
     >;
   }
 
@@ -157,7 +170,9 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.InvalidType
   | TIssue.Forbidden
   // Literal
-  | TIssue.Literal.Mismatch
+  | TIssue.Literal.Invalid
+  // Enum
+  | TIssue.Enum.Invalid
   // Number
   | TIssue.Number.Integer
   | TIssue.Number.Precision
