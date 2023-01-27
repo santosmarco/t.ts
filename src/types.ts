@@ -1774,7 +1774,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
   }
 
   map<U extends AnyTType>(fn: (element: T) => U): TArray<U, Card> {
-    return new TArray({ ...this._def, props: { ...this.props, element: fn(this.element) } });
+    return new TArray<U, Card>({ ...this._def, props: { ...this.props, element: fn(this.element) } });
   }
 
   sparse(enabled?: true): TArray<TOptional<T>, Card>;
