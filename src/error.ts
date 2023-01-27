@@ -54,8 +54,8 @@ export function defaultErrorFormatter(issues: readonly TIssue[]): string {
   });
 }
 
-export class TError extends Error {
-  get name() {
+export class TError<$I = unknown> extends Error {
+  override get name() {
     return "TError";
   }
 
@@ -69,7 +69,7 @@ export class TError extends Error {
       Object.setPrototypeOf(this, actualProto);
     } else {
       // eslint-disable-next-line no-proto
-      (this as Record<string, unknown>).__proto__ = actualProto;
+      (this as Record<string, unknown>)["__proto__"] = actualProto;
     }
 
     this._ctx = ctx.root;
@@ -85,7 +85,7 @@ export class TError extends Error {
     return this._ctx.allIssues;
   }
 
-  get message() {
+  override get message() {
     return TGlobal.getErrorFormatter()(this.issues);
   }
 }

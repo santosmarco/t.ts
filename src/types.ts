@@ -1672,6 +1672,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
           } else if (ctx.common.abortEarly) {
             return Promise.reject();
           }
+          return Promise.resolve();
         })
       )
         .then(() => finalizeArray(ctx, result, postChecks))
@@ -1773,7 +1774,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
   }
 
   map<U extends AnyTType>(fn: (element: T) => U): TArray<U, Card> {
-    return this._construct({ ...this._def, props: { ...this.props, element: fn(this.element) } });
+    return new TArray({ ...this._def, props: { ...this.props, element: fn(this.element) } });
   }
 
   sparse(enabled?: true): TArray<TOptional<T>, Card>;
@@ -1875,6 +1876,7 @@ export class TTuple<T extends readonly AnyTType[], R extends AnyTType | null> ex
           } else if (ctx.common.abortEarly) {
             return Promise.reject();
           }
+          return Promise.resolve();
         })
       )
         .then(() => ctx.return(result as TTupleIO<T, R>))
@@ -2064,6 +2066,7 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
           } else if (ctx.common.abortEarly) {
             return Promise.reject();
           }
+          return Promise.resolve();
         })
       )
         .then(() => ctx.return(result))
@@ -2127,7 +2130,7 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
   }
 
   map<U extends AnyTType>(fn: (element: T) => U): TSet<U> {
-    return this._construct({ ...this._def, props: { ...this.props, element: fn(this.element) } });
+    return new TSet({ ...this._def, props: { ...this.props, element: fn(this.element) } });
   }
 
   sparse(enabled?: true): TSet<TOptional<T>>;
@@ -2347,6 +2350,7 @@ export class TRecord<K extends TRecordKeys, V extends AnyTType> extends TType<TR
             values._parseAsync(ctx.child(values, v, [k])),
           ]);
           if (!parsedKey.ok) {
+            parsedKey.warnings?.forEach((w) => ctx.addWarning(w));
             ctx.addIssue(
               { kind: TIssueKind.Record.InvalidKey, payload: { key: k, error: parsedKey.error } },
               this.options.messages[TIssueKind.Record.InvalidKey]
@@ -2359,6 +2363,7 @@ export class TRecord<K extends TRecordKeys, V extends AnyTType> extends TType<TR
           } else if (ctx.common.abortEarly) {
             return Promise.reject();
           }
+          return Promise.resolve();
         })
       )
         .then(() => ctx.return(result))
@@ -2371,6 +2376,7 @@ export class TRecord<K extends TRecordKeys, V extends AnyTType> extends TType<TR
         values._parseSync(ctx.child(values, v, [k])),
       ];
       if (!parsedKey.ok) {
+        parsedKey.warnings?.forEach((w) => ctx.addWarning(w));
         ctx.addIssue(
           { kind: TIssueKind.Record.InvalidKey, payload: { key: k, error: parsedKey.error } },
           this.options.messages[TIssueKind.Record.InvalidKey]
@@ -2501,6 +2507,7 @@ export class TMap<K extends TRecordKeys, V extends AnyTType> extends TType<TMapD
           } else if (ctx.common.abortEarly) {
             return Promise.reject();
           }
+          return Promise.resolve();
         })
       )
         .then(() => ctx.return(result))
@@ -2629,6 +2636,7 @@ export class TObject<
           } else if (ctx.common.abortEarly) {
             return Promise.reject();
           }
+          return Promise.resolve();
         })
       )
         .then(async () =>
@@ -2652,6 +2660,7 @@ export class TObject<
                   return Promise.reject();
                 }
               }
+              return Promise.resolve();
             })
           )
         )
@@ -3520,14 +3529,15 @@ export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTTy
 
     if (ctx.common.async) {
       return condition._parseAsync(ctx.clone(condition, ctx.data)).then((res) => {
+        res.warnings?.forEach((w) => ctx.addWarning(w));
         if (res.ok) {
           if (tThen) {
-            return tThen._parseAsync(ctx.clone(tThen, ctx.data));
+            return tThen._parseAsync(ctx.child(tThen, ctx.data));
           } else {
             return ctx.return();
           }
         } else if (tElse) {
-          return tElse._parseAsync(ctx.clone(tElse, ctx.data));
+          return tElse._parseAsync(ctx.child(tElse, ctx.data));
         } else {
           return ctx.return();
         }
@@ -3535,15 +3545,15 @@ export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTTy
     }
 
     const res = condition._parseSync(ctx.clone(condition, ctx.data));
-
+    res.warnings?.forEach((w) => ctx.addWarning(w));
     if (res.ok) {
       if (tThen) {
-        return tThen._parseSync(ctx.clone(tThen, ctx.data));
+        return tThen._parseSync(ctx.child(tThen, ctx.data));
       } else {
         return ctx.return();
       }
     } else if (tElse) {
-      return tElse._parseSync(ctx.clone(tElse, ctx.data));
+      return tElse._parseSync(ctx.child(tElse, ctx.data));
     } else {
       return ctx.return();
     }

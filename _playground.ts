@@ -86,7 +86,7 @@ const tt = t
   .concat(t.tuple([t.number()], t.bigint()))
   .last();
 const tt2 = t.tuple([]).last();
-console.log(tt, tt.safeParse(["1", 2, Buffer.from("a")]));
+console.log(tt, tt.safeParse(["1", 2, Buffer.from("a")]).error);
 
 const a = t.if(t.bigint(), { then: t.bigint(), else: t.number() });
 type a = t.infer<typeof a>;

@@ -10,26 +10,26 @@ import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf } from "./utils";
 /*                                                       TParse                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TParseResultSuccess<$O, $I = $O> = {
+export type TParseResultSuccess<$O> = {
   readonly ok: true;
   readonly data: $O;
   readonly error?: never;
   readonly warnings?: readonly TIssue[];
 };
 
-export type TParseResultFailure<$O, $I = $O> = {
+export type TParseResultFailure<$I> = {
   readonly ok: false;
   readonly data?: never;
-  readonly error: TError;
+  readonly error: TError<$I>;
   readonly warnings?: readonly TIssue[];
 };
 
-export type TParseResultSync<$O, $I = $O> = TParseResultSuccess<$O, $I> | TParseResultFailure<$O, $I>;
+export type TParseResultSync<$O, $I = $O> = TParseResultSuccess<$O> | TParseResultFailure<$I>;
 export type TParseResultAsync<$O, $I = $O> = Promise<TParseResultSync<$O, $I>>;
 export type TParseResult<$O, $I = $O> = TParseResultSync<$O, $I> | TParseResultAsync<$O, $I>;
 
-export type TParseResultSuccessOf<T extends AnyTType> = TParseResultSuccess<T["$O"], T["$I"]>;
-export type TParseResultFailureOf<T extends AnyTType> = TParseResultFailure<T["$O"], T["$I"]>;
+export type TParseResultSuccessOf<T extends AnyTType> = TParseResultSuccess<T["$O"]>;
+export type TParseResultFailureOf<T extends AnyTType> = TParseResultFailure<T["$I"]>;
 export type TParseResultSyncOf<T extends AnyTType> = TParseResultSync<T["$O"], T["$I"]>;
 export type TParseResultAsyncOf<T extends AnyTType> = TParseResultAsync<T["$O"], T["$I"]>;
 export type TParseResultOf<T extends AnyTType> = TParseResultSyncOf<T> | TParseResultAsyncOf<T>;
