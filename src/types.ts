@@ -43,6 +43,7 @@ import {
   type Try,
   type UnionToTuple,
   type _,
+  type __,
 } from "./utils";
 
 export const TTypeName = {
@@ -57,6 +58,7 @@ export const TTypeName = {
   Defined: "TDefined",
   Enum: "TEnum",
   False: "TFalse",
+  If: "TIf",
   Intersection: "TIntersection",
   Lazy: "TLazy",
   Literal: "TLiteral",
@@ -77,6 +79,7 @@ export const TTypeName = {
   String: "TString",
   Symbol: "TSymbol",
   True: "TTrue",
+  Tuple: "TTuple",
   Undefined: "TUndefined",
   Union: "TUnion",
   Unknown: "TUnknown",
@@ -414,6 +417,8 @@ export abstract class TType<D extends AnyBrandedTDef> {
       { ...this._def, ...def },
     ]);
   }
+
+  /* ---------------------------------------------------------------------------------------------------------------- */
 
   get [tt]() {
     return true;
@@ -1739,7 +1744,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     comparatorOrOptions?: TArrayComparatorFn<T, boolean> | { strict?: boolean; message?: string },
     maybeOptions?: { strict?: boolean; message?: string }
   ) {
-    const comparator = isKindOf(comparatorOrOptions, ValueKind.Function) ? comparatorOrOptions : undefined;
+    const comparator = isKindOf(comparatorOrOptions, ValueKind.Function) ? comparatorOrOptions : null;
     const options = isKindOf(comparatorOrOptions, ValueKind.Function) ? maybeOptions : comparatorOrOptions;
 
     return this._addCheck({
@@ -1756,7 +1761,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     comparatorOrOptions?: TArrayComparatorFn<T, number> | { strict?: boolean; message?: string },
     maybeOptions?: { strict?: boolean; message?: string }
   ) {
-    const comparator = isKindOf(comparatorOrOptions, ValueKind.Function) ? comparatorOrOptions : undefined;
+    const comparator = isKindOf(comparatorOrOptions, ValueKind.Function) ? comparatorOrOptions : null;
     const options = isKindOf(comparatorOrOptions, ValueKind.Function) ? maybeOptions : comparatorOrOptions;
 
     return this._addCheck({
@@ -1785,8 +1790,13 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     return this.sparse(false);
   }
 
-  concat<U extends AnyTArray>(other: U): TArray<TUnion<[T, U["element"]]>, Card> {
-    return this.map((e) => e.or(other.element));
+  concat<T1 extends AnyTType, Card1 extends TArrayCardinality>(
+    other: TArray<T1, Card1>
+  ): TArray<TUnion<[T, T1]>, Card1> {
+    return new TArray<TUnion<[T, T1]>, Card1>({
+      ...other._def,
+      props: { ...other.props, element: this.element.or(other.element) },
+    });
   }
 
   static readonly create = Object.freeze(
@@ -1808,6 +1818,174 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
 }
 
 export type AnyTArray = TArray<AnyTType, TArrayCardinality>;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                       TTuple                                                       */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TTupleIO<T extends readonly AnyTType[], R extends AnyTType | null, IO extends "$O" | "$I" = "$O"> = [
+  ...{ [K in keyof T]: T[K][IO] },
+  ...(R extends AnyTType ? Array<R[IO]> : [])
+];
+
+export type TTupleOptions = TOptions<{ issueKinds: ["tuple.length"] }>;
+
+export type TTupleDef<T extends readonly AnyTType[], R extends AnyTType | null> = MakeTDef<{
+  $Out: TTupleIO<T, R>;
+  $In: TTupleIO<T, R, "$I">;
+  $TypeName: "TTuple";
+  $Props: { readonly items: T; readonly rest: R };
+  $Options: TTupleOptions;
+}>;
+
+export class TTuple<T extends readonly AnyTType[], R extends AnyTType | null> extends TType<TTupleDef<T, R>> {
+  _parse(ctx: TParseContext<this>) {
+    if (!isKindOf(ctx.data, ValueKind.Array)) {
+      return ctx.invalidType({ expected: ValueKind.Array }).return();
+    }
+
+    const { items, rest } = this.props;
+    const { data } = ctx;
+    const { length } = data;
+
+    if (length < items.length || (rest === null && length > items.length)) {
+      return ctx
+        .addIssue(
+          {
+            kind: TIssueKind.Tuple.Length,
+            payload: { min: items.length, max: rest ? null : items.length, received: length },
+          },
+          this.options.messages[TIssueKind.Tuple.Length]
+        )
+        .return();
+    }
+
+    const result: unknown[] = [];
+
+    if (ctx.common.async) {
+      return Promise.all(
+        data.map(async (v, i) => {
+          const t = items[i] ?? rest;
+          if (!t) {
+            return Promise.reject();
+          }
+          const parsed = await t._parseAsync(ctx.child(t, v, [i]));
+          if (parsed.ok) {
+            result[i] = parsed.data;
+          } else if (ctx.common.abortEarly) {
+            return Promise.reject();
+          }
+        })
+      )
+        .then(() => ctx.return(result as TTupleIO<T, R>))
+        .catch(() => ctx.return());
+    }
+
+    for (const [i, v] of data.entries()) {
+      const t = items[i] ?? rest;
+      if (!t) {
+        return ctx.return();
+      }
+      const parsed = t._parseSync(ctx.child(t, v, [i]));
+      if (parsed.ok) {
+        result[i] = parsed.data;
+      } else if (ctx.common.abortEarly) {
+        return ctx.return();
+      }
+    }
+
+    return ctx.return(result as TTupleIO<T, R>);
+  }
+
+  get items(): T {
+    return this.props.items;
+  }
+
+  get restType(): R {
+    return this.props.rest;
+  }
+
+  rest<NewR extends AnyTType>(rest: NewR): TTuple<T, NewR> {
+    return new TTuple<T, NewR>({ ...this._def, props: { ...this.props, rest } });
+  }
+
+  removeRest(): TTuple<T, null> {
+    return new TTuple<T, null>({ ...this._def, props: { ...this.props, rest: null } });
+  }
+
+  head(): T extends readonly [infer Head extends AnyTType, ...(readonly unknown[])] ? Head : TNever;
+  head() {
+    return this.items[0] ?? TNever.create(pickTransferrableOptions(this.options));
+  }
+
+  tail(): T extends readonly [unknown, ...infer Tail extends readonly AnyTType[]] ? TTuple<Tail, R> : TTuple<[], R>;
+  tail() {
+    return this.items.length <= 0
+      ? new TTuple<[], R>({ ...this._def, props: { ...this.props, items: [] } })
+      : new TTuple({ ...this._def, props: { ...this.props, items: this.items.slice(1) } });
+  }
+
+  last(): T extends readonly [...(readonly unknown[]), infer Last extends AnyTType] ? Last : TNever;
+  last() {
+    return this.items[this.items.length - 1] ?? TNever.create(pickTransferrableOptions(this.options));
+  }
+
+  prepend<Head extends AtLeastOne<AnyTType>>(...head: Head): TTuple<[...Head, ...T], R> {
+    return new TTuple<[...Head, ...T], R>({ ...this._def, props: { ...this.props, items: [...head, ...this.items] } });
+  }
+
+  unshift<Head extends AtLeastOne<AnyTType>>(...head: Head): TTuple<[...Head, ...T], R> {
+    return this.prepend(...head);
+  }
+
+  append<Tail extends AtLeastOne<AnyTType>>(...tail: Tail): TTuple<[...T, ...Tail], R> {
+    return new TTuple<[...T, ...Tail], R>({ ...this._def, props: { ...this.props, items: [...this.items, ...tail] } });
+  }
+
+  push<Tail extends AtLeastOne<AnyTType>>(...tail: Tail): TTuple<[...T, ...Tail], R> {
+    return this.append(...tail);
+  }
+
+  concat<T1 extends readonly AnyTType[], R1 extends AnyTType | null>(
+    other: TTuple<T1, R1>
+  ): TTuple<[...T, ...T1], R extends AnyTType ? (R1 extends AnyTType ? TUnion<[R, R1]> : R) : R1>;
+  concat(other: AnyTTuple): AnyTTuple {
+    return new TTuple<AnyTType[], AnyTType | null>({
+      ...other._def,
+      props: {
+        ...other.props,
+        items: [...this.items, ...other.items],
+        rest:
+          this.restType && other.restType
+            ? TUnion.create([this.restType, other.restType])
+            : this.restType ?? other.restType,
+      },
+    });
+  }
+
+  static create<T extends AtLeastOne<AnyTType> | readonly [], R extends AnyTType | null>(
+    items: T,
+    rest: R,
+    options?: TTupleOptions
+  ): TTuple<T, R>;
+  static create<T extends AtLeastOne<AnyTType> | readonly []>(items: T, options?: TTupleOptions): TTuple<T, null>;
+  static create<T extends AtLeastOne<AnyTType> | readonly [], R extends AnyTType | null>(
+    items: T,
+    restOrOptions?: R | TTupleOptions,
+    maybeOptions?: TTupleOptions
+  ) {
+    const rest: AnyTType | null = restOrOptions instanceof TType ? restOrOptions : null;
+    const options: TTupleOptions | undefined = restOrOptions
+      ? restOrOptions instanceof TType
+        ? maybeOptions
+        : restOrOptions
+      : undefined;
+
+    return new TTuple({ typeName: TTypeName.Tuple, props: { items, rest }, options: processCreateOptions(options) });
+  }
+}
+
+export type AnyTTuple = TTuple<AnyTType[], AnyTType | null>;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                        TSet                                                        */
@@ -2394,7 +2572,7 @@ export type TObjectIO<
   U extends TObjectUnknownKeys | null,
   C extends AnyTType | null,
   IO extends "$O" | "$I" = "$O"
-> = _<
+> = __<
   EnforceOptional<{ [K in keyof S]: S[K][IO] }> &
     (C extends AnyTType
       ? Record<string, C[IO]>
@@ -3137,36 +3315,41 @@ export type TUnionDef<T extends readonly AnyTType[]> = MakeTDef<{
 }>;
 
 export class TUnion<T extends readonly AnyTType[]> extends TType<TUnionDef<T>> {
-  _parse(ctx: TParseContext<this>) {
+  _parse(ctx: TParseContext<this>): TParseResultOf<this> {
     const members = flattenMembers(this.types, TTypeName.Union);
 
     const errors: TError[] = [];
 
     if (ctx.common.async) {
-      return Promise.all(members.map(async (m) => m._parseAsync(ctx.clone(m, ctx.data)))).then((results) => {
-        for (const res of results) {
-          if (res.ok) {
-            return ctx.return(res.data);
+      return Promise.all(members.map(async (m, i) => m._parseAsync(ctx.clone(m, ctx.data, ["options", i])))).then(
+        (results) => {
+          for (const res of results) {
+            if (res.ok) {
+              return ctx.return(res.data);
+            }
+
+            res.warnings?.forEach((w) => ctx.addWarning(w));
+            errors.push(res.error);
           }
 
-          errors.push(res.error);
+          return ctx
+            .addIssue(
+              { kind: TIssueKind.Union.Invalid, payload: { errors } },
+              this.options.messages[TIssueKind.Union.Invalid]
+            )
+            .return();
         }
-
-        return ctx
-          .addIssue(
-            { kind: TIssueKind.Union.Invalid, payload: { errors } },
-            this.options.messages[TIssueKind.Union.Invalid]
-          )
-          .return();
-      });
+      );
     }
 
-    for (const m of members) {
-      const res = m._parseSync(ctx.clone(m, ctx.data));
+    for (const [i, m] of members.entries()) {
+      const res = m._parseSync(ctx.clone(m, ctx.data, ["options", i]));
+
       if (res.ok) {
         return ctx.return(res.data);
       }
 
+      res.warnings?.forEach((w) => ctx.addWarning(w));
       errors.push(res.error);
     }
 
@@ -3191,7 +3374,7 @@ export class TUnion<T extends readonly AnyTType[]> extends TType<TUnionDef<T>> {
   }
 
   static create<T extends AtLeastTwo<AnyTType>>(types: T, options?: TUnionOptions): TUnion<T> {
-    return this._create(types, options);
+    return TUnion._create(types, options);
   }
 
   static _create<T extends readonly AnyTType[]>(types: T, options: TUnionOptions | undefined): TUnion<T> {
@@ -3205,14 +3388,88 @@ export type AnyTUnion = TUnion<AnyTType[]>;
 /*                                                    TIntersection                                                   */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+export type TIntersectionIO<T extends readonly AnyTType[], IO extends "$O" | "$I" = "$O"> = T extends readonly []
+  ? unknown
+  : T extends readonly [infer H extends AnyTType, ...infer R extends readonly AnyTType[]]
+  ? H[IO] & TIntersectionIO<R, IO>
+  : never;
+
+export type TIntersectionOptions = TOptions<{ issueKinds: ["intersection.invalid"] }>;
+
 export type TIntersectionDef<T extends readonly AnyTType[]> = MakeTDef<{
-  $Out: tf.UnionToIntersection<OutputOf<T[number]>>;
-  $In: tf.UnionToIntersection<InputOf<T[number]>>;
+  $Out: TIntersectionIO<T>;
+  $In: TIntersectionIO<T, "$I">;
   $TypeName: "TIntersection";
   $Props: { readonly types: T };
+  $Options: TIntersectionOptions;
 }>;
 
 export class TIntersection<T extends readonly AnyTType[]> extends TType<TIntersectionDef<T>> {
+  _parse(ctx: TParseContext<this>): TParseResultOf<this> {
+    const members = flattenMembers(this.types, TTypeName.Intersection);
+
+    const errors: TError[] = [];
+
+    const terminate = () =>
+      ctx
+        .addIssue(
+          { kind: TIssueKind.Intersection.Invalid, payload: { errors } },
+          this.options.messages[TIssueKind.Intersection.Invalid]
+        )
+        .return();
+
+    if (ctx.common.async) {
+      return Promise.resolve().then(async () => {
+        for (const [i, m] of members.entries()) {
+          const res = await m._parseAsync(ctx.clone(m, ctx.data, ["intersectees", i]));
+
+          res.warnings?.forEach((w) => ctx.addWarning(w));
+
+          if (res.ok) {
+            ctx.setData(res.data);
+            continue;
+          }
+
+          errors.push(res.error);
+
+          if (ctx.common.abortEarly) {
+            return terminate();
+          }
+        }
+
+        if (errors.length > 0) {
+          return terminate();
+        }
+
+        return ctx.return();
+      });
+    }
+
+    for (const [i, m] of members.entries()) {
+      const res = m._parseSync(ctx.clone(m, ctx.data, ["intersectees", i]));
+
+      res.warnings?.forEach((w) => ctx.addWarning(w));
+
+      if (res.ok) {
+        ctx.setData(res.data);
+        continue;
+      }
+
+      errors.push(res.error);
+
+      if (ctx.common.abortEarly) {
+        return terminate();
+      }
+    }
+
+    if (errors.length > 0) {
+      console.log(ctx.ownIssues);
+      return terminate();
+    }
+
+    return ctx.return();
+  }
+
   get types(): T {
     return this.props.types;
   }
@@ -3225,11 +3482,11 @@ export class TIntersection<T extends readonly AnyTType[]> extends TType<TInterse
     return TUnion._create(this.types, this.options);
   }
 
-  static create<T extends AtLeastTwo<AnyTType>>(types: T, options?: TOptions): TIntersection<T> {
-    return this._create(types, options);
+  static create<T extends AtLeastTwo<AnyTType>>(types: T, options?: TIntersectionOptions): TIntersection<T> {
+    return TIntersection._create(types, options);
   }
 
-  static _create<T extends readonly AnyTType[]>(types: T, options: TOptions | undefined): TIntersection<T> {
+  static _create<T extends readonly AnyTType[]>(types: T, options: TIntersectionOptions | undefined): TIntersection<T> {
     return new TIntersection({
       typeName: TTypeName.Intersection,
       props: { types },
@@ -3239,6 +3496,101 @@ export class TIntersection<T extends readonly AnyTType[]> extends TType<TInterse
 }
 
 export type AnyTIntersection = TIntersection<AnyTType[]>;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                         TIf                                                        */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TIfIO<
+  C extends AnyTType,
+  T extends AnyTType | null,
+  E extends AnyTType | null,
+  IO extends "$O" | "$I" = "$O"
+> = T extends AnyTType ? (E extends AnyTType ? T[IO] | E[IO] : T[IO]) : E extends AnyTType ? E[IO] : C[IO];
+
+export type TIfDef<C extends AnyTType, T extends AnyTType | null, E extends AnyTType | null> = MakeTDef<{
+  $Out: TIfIO<C, T, E>;
+  $In: TIfIO<C, T, E, "$I">;
+  $TypeName: "TIf";
+  $Props: { readonly condition: C; readonly then: T; readonly else: E };
+}>;
+
+export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTType | null> extends TType<
+  TIfDef<C, T, E>
+> {
+  _parse(ctx: TParseContext<this>) {
+    const { condition, then: tThen, else: tElse } = this.props;
+
+    if (ctx.common.async) {
+      return condition._parseAsync(ctx.clone(condition, ctx.data)).then((res) => {
+        if (res.ok) {
+          if (tThen) {
+            return tThen._parseAsync(ctx.clone(tThen, ctx.data));
+          } else {
+            return ctx.return();
+          }
+        } else if (tElse) {
+          return tElse._parseAsync(ctx.clone(tElse, ctx.data));
+        } else {
+          return ctx.return();
+        }
+      });
+    }
+
+    const res = condition._parseSync(ctx.clone(condition, ctx.data));
+
+    if (res.ok) {
+      if (tThen) {
+        return tThen._parseSync(ctx.clone(tThen, ctx.data));
+      } else {
+        return ctx.return();
+      }
+    } else if (tElse) {
+      return tElse._parseSync(ctx.clone(tElse, ctx.data));
+    } else {
+      return ctx.return();
+    }
+  }
+
+  get condition(): C {
+    return this.props.condition;
+  }
+
+  get then(): T {
+    return this.props.then;
+  }
+
+  get else(): E {
+    return this.props.else;
+  }
+
+  static create<C extends AnyTType, T extends AnyTType, E extends AnyTType>(
+    condition: C,
+    resolution: { then: T; else: E },
+    options?: TOptions
+  ): TIf<C, T, E>;
+  static create<C extends AnyTType, T extends AnyTType>(
+    condition: C,
+    resolution: { then: T },
+    options?: TOptions
+  ): TIf<C, T, null>;
+  static create<C extends AnyTType, E extends AnyTType>(
+    condition: C,
+    resolution: { else: E },
+    options?: TOptions
+  ): TIf<C, null, E>;
+  static create<C extends AnyTType, T extends AnyTType, E extends AnyTType>(
+    condition: C,
+    resolution: { then?: T; else?: E },
+    options?: TOptions
+  ): TIf<C, T | null, E | null> {
+    return new TIf({
+      typeName: TTypeName.If,
+      props: { condition, then: resolution.then ?? null, else: resolution.else ?? null },
+      options: processCreateOptions(options),
+    });
+  }
+}
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TCoerce                                                      */
@@ -3288,43 +3640,45 @@ export const TMarkers = {
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export const anyType = TAny.create;
-export const arrayType = TArray.create;
-export const bigintType = TBigInt.create;
-export const booleanType = TBoolean.create;
-export const bufferType = TBuffer.create;
+export const anyType = TAny.create.bind(TAny);
+export const arrayType = TArray.create.bind(TArray);
+export const bigintType = TBigInt.create.bind(TBigInt);
+export const booleanType = TBoolean.create.bind(TBoolean);
+export const bufferType = TBuffer.create.bind(TBuffer);
 export const castType = TCast;
-export const catchType = TCatch.create;
+export const catchType = TCatch.create.bind(TCatch);
 export const coerceType = TCoerce;
-export const dateType = TDate.create;
-export const defaultType = TDefault.create;
-export const definedType = TDefined.create;
-export const enumType = TEnum.create;
-export const falseType = TFalse.create;
-export const intersectionType = TIntersection.create;
-export const lazyType = TLazy.create;
-export const literalType = TLiteral.create;
-export const mapType = TMap.create;
-export const nanType = TNaN.create;
-export const nativeEnumType = TNativeEnum.create;
-export const neverType = TNever.create;
-export const nonnullableType = TNonNullable.create;
-export const nullableType = TNullable.create;
-export const nullType = TNull.create;
-export const numberType = TNumber.create;
-export const objectType = TObject.create;
-export const optionalType = TOptional.create;
-export const pipelineType = TPipeline.create;
-export const promiseType = TPromise.create;
-export const recordType = TRecord.create;
-export const setType = TSet.create;
-export const stringType = TString.create;
-export const symbolType = TSymbol.create;
-export const trueType = TTrue.create;
-export const undefinedType = TUndefined.create;
-export const unionType = TUnion.create;
-export const unknownType = TUnknown.create;
-export const voidType = TVoid.create;
+export const dateType = TDate.create.bind(TDate);
+export const defaultType = TDefault.create.bind(TDefault);
+export const definedType = TDefined.create.bind(TDefined);
+export const enumType = TEnum.create.bind(TEnum);
+export const falseType = TFalse.create.bind(TFalse);
+export const ifType = TIf.create.bind(TIf);
+export const intersectionType = TIntersection.create.bind(TIntersection);
+export const lazyType = TLazy.create.bind(TLazy);
+export const literalType = TLiteral.create.bind(TLiteral);
+export const mapType = TMap.create.bind(TMap);
+export const nanType = TNaN.create.bind(TNaN);
+export const nativeEnumType = TNativeEnum.create.bind(TNativeEnum);
+export const neverType = TNever.create.bind(TNever);
+export const nonnullableType = TNonNullable.create.bind(TNonNullable);
+export const nullableType = TNullable.create.bind(TNullable);
+export const nullType = TNull.create.bind(TNull);
+export const numberType = TNumber.create.bind(TNumber);
+export const objectType = TObject.create.bind(TObject);
+export const optionalType = TOptional.create.bind(TOptional);
+export const pipelineType = TPipeline.create.bind(TPipeline);
+export const promiseType = TPromise.create.bind(TPromise);
+export const recordType = TRecord.create.bind(TRecord);
+export const setType = TSet.create.bind(TSet);
+export const stringType = TString.create.bind(TString);
+export const symbolType = TSymbol.create.bind(TSymbol);
+export const trueType = TTrue.create.bind(TTrue);
+export const tupleType = TTuple.create.bind(TTuple);
+export const undefinedType = TUndefined.create.bind(TUndefined);
+export const unionType = TUnion.create.bind(TUnion);
+export const unknownType = TUnknown.create.bind(TUnknown);
+export const voidType = TVoid.create.bind(TVoid);
 
 export const markers = TMarkers;
 export const overrideMarker: typeof TOverrideMarker = TMarkers.override;
@@ -3348,6 +3702,8 @@ export {
   definedType as required,
   enumType as enum,
   falseType as false,
+  ifType as conditional,
+  ifType as if,
   intersectionType as and,
   intersectionType as intersection,
   lazyType as lazy,
@@ -3371,6 +3727,7 @@ export {
   stringType as string,
   symbolType as symbol,
   trueType as true,
+  tupleType as tuple,
   undefinedType as undefined,
   unionType as or,
   unionType as union,
@@ -3379,9 +3736,9 @@ export {
   voidType as void,
 };
 
-export type output<T extends AnyTType> = OutputOf<T>;
-export type input<T extends AnyTType> = InputOf<T>;
-export type infer<T extends AnyTType> = OutputOf<T>;
+export type output<T extends AnyTType> = _<T["$O"]>;
+export type input<T extends AnyTType> = _<T["$I"]>;
+export type infer<T extends AnyTType> = output<T>;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 

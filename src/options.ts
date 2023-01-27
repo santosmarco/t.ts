@@ -1,6 +1,6 @@
 import type { TErrorMap } from "./error";
 import type { TIssueKind } from "./issues";
-import { BRAND, enbrand, pick, type Branded, type _ } from "./utils";
+import { BRAND, enbrand, pick, type Branded, type __ } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TOptions                                                      */
@@ -10,7 +10,7 @@ export type TOptionsOpts = {
   readonly issueKinds?: ReadonlyArray<Exclude<TIssueKind, "base.required" | "base.invalid_type">>;
 };
 
-export type TOptions<T extends TOptionsOpts | null = null> = _<{
+export type TOptions<T extends TOptionsOpts | null = null> = __<{
   readonly abortEarly?: boolean;
   readonly label?: string;
   readonly schemaErrorMap?: TErrorMap;

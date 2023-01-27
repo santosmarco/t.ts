@@ -7,13 +7,15 @@ export type BuiltIn =
   | Function
   | Generator
   | Promise<unknown>
+  | readonly unknown[]
   | ReadonlyMap<unknown, unknown>
   | ReadonlySet<unknown>
   | RegExp;
 
 export type Try<T, U, Catch = never> = T extends U ? T : Catch;
 
-export type _<T> = tf.IsEqual<T, unknown> extends true ? T : T extends BuiltIn ? T : { [K in keyof T]: _<T[K]> } & {};
+export type _<T> = tf.IsEqual<T, unknown> extends true ? T : T extends BuiltIn ? T : { [K in keyof T]: T[K] } & {};
+export type __<T> = tf.IsEqual<T, unknown> extends true ? T : T extends BuiltIn ? T : { [K in keyof T]: __<T[K]> } & {};
 
 export type HasKey<T extends Record<string, unknown>, K extends keyof T> = K extends keyof T ? 1 : 0;
 

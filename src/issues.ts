@@ -58,6 +58,9 @@ export const TIssueKind = {
     Unique: "array.unique",
     Sort: "array.sort",
   },
+  Tuple: {
+    Length: "tuple.length",
+  },
   Set: {
     Min: "set.min",
     Max: "set.max",
@@ -83,6 +86,9 @@ export const TIssueKind = {
   },
   Union: {
     Invalid: "union.invalid",
+  },
+  Intersection: {
+    Invalid: "intersection.invalid",
   },
 } as const;
 
@@ -183,6 +189,10 @@ export namespace TIssue {
     export type Sort = FromTCheck<"array.sort", TCheck.Sort>;
   }
 
+  export namespace Tuple {
+    export type Length = FromTCheck<"tuple.length", TCheck.TupleLength, { received: number }>;
+  }
+
   export namespace Set {
     export type Min = FromTCheck<"set.min", TCheck.Min, { received: number }>;
     export type Max = FromTCheck<"set.max", TCheck.Max, { received: number }>;
@@ -213,6 +223,10 @@ export namespace TIssue {
 
   export namespace Union {
     export type Invalid = MakeTIssue<"union.invalid", { errors: TError[] }>;
+  }
+
+  export namespace Intersection {
+    export type Invalid = MakeTIssue<"intersection.invalid", { errors: TError[] }>;
   }
 }
 
@@ -252,6 +266,8 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Array.Range
   | TIssue.Array.Unique
   | TIssue.Array.Sort
+  // Tuple
+  | TIssue.Tuple.Length
   // Set
   | TIssue.Set.Min
   | TIssue.Set.Max
@@ -271,6 +287,8 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   // Object
   | TIssue.Object.UnknownKey
   // Union
-  | TIssue.Union.Invalid,
+  | TIssue.Union.Invalid
+  // Intersection
+  | TIssue.Intersection.Invalid,
   { readonly kind: K }
 >;

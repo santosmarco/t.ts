@@ -41,24 +41,49 @@ import { t } from "./src";
 //     { abortEarly: false }
 //   )
 //   .catch(console.log);
-// // Console.log(joi.object().pattern(/aaa/, joi.string()).validate({ a: 2 }, { stripUnknown: false }).error.details);
+// // // Console.log(joi.object().pattern(/aaa/, joi.string()).validate({ a: 2 }, { stripUnknown: false }).error.details);
 
-// console.log(t.literal(true).warnOnly().safeParse(false));
-const Person = t
-  .object({
-    name: t.string(),
-    age: t.number(),
-    address: t
-      .object({
-        street: t.string(),
-        city: t.string().promise(),
-      })
-      .partial(["street"]),
-  })
-  .strict();
+// // console.log(t.literal(true).warnOnly().safeParse(false));
+// const Person = t
+//   .object({
+//     name: t.string(),
+//     age: t.number(),
+//     address: t
+//       .object({
+//         street: t.string(),
+//         city: t.string().promise(),
+//       })
+//       .partial(["street"]),
+//   })
+//   .strict();
 
-type Person = t.infer<typeof Person>;
+// type Person = t.infer<typeof Person>;
 
-console.log(
-  Person.or(t.string()).safeParse({ name: "marco", age: 30, address: { city: "2" }, zz: 2n, ele: undefined })
-);
+// console.log(
+//   // Person.or(t.union([t.string(), t.number()])).safeParse({
+//   //   name: "marco",
+//   //   age: 30,
+//   //   address: { city: "2" },
+//   //   zz: 2n,
+//   //   ele: undefined,
+//   // })
+//   // t
+//   //   .object({ a: t.string() })
+//   //   .strict()
+//   //   .and(t.object({ b: t.string() }))
+//   //   .safeParse({ a: "1", b: "2", c: "3" }),
+//   t.array(t.bigint()).and(t.array(t.string())).warnOnly().safeParse([1n, 2n, 3n, 5n])
+// );
+
+// const c = t.tuple([t.string(), t.bigint(), t.nan()]);
+// type c = t.infer<typeof c>;
+// type d = bigint[] & string[];
+
+// console.log(c.safeParse(["1", 2n, NaN]));
+
+const tt = t
+  .tuple([t.string()], t.buffer())
+  .concat(t.tuple([t.number()], t.bigint()))
+  .last();
+const tt2 = t.tuple([]).last();
+console.log(tt, tt.safeParse(["1", 2, Buffer.from("a")]));

@@ -6,6 +6,7 @@ import enUS from "./locales/en-us";
 /*                                                       TGlobal                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class TGlobal {
   private static _locale: TLocale = enUS;
   private static _errorMap: TErrorMap = this._locale.map;

@@ -23,6 +23,7 @@ export const TCheckKind = {
   Safe: "safe",
   Size: "size",
   Sort: "sort",
+  TupleLength: "tuple_length",
   Unique: "unique",
   Url: "url",
   Uuid: "uuid",
@@ -53,13 +54,15 @@ export namespace TCheck {
   export type Length<V = number> = MakeTCheck<"length", { value: V }>;
   export type Size<V = number> = MakeTCheck<"size", { value: V }>;
 
+  export type TupleLength = MakeTCheck<"tuple_length", { min: number; max: number | null }>;
+
   export type Unique = MakeTCheck<
     "unique",
-    { comparator: ((a: any, b: any, x: number, y: number, arr: any[]) => boolean) | undefined; strict: boolean }
+    { comparator: ((a: any, b: any, x: number, y: number, arr: any[]) => boolean) | null; strict: boolean }
   >;
   export type Sort = MakeTCheck<
     "sort",
-    { comparator: ((a: any, b: any, x: number, y: number, arr: any[]) => number) | undefined; strict: boolean }
+    { comparator: ((a: any, b: any, x: number, y: number, arr: any[]) => number) | null; strict: boolean }
   >;
 
   export type Cuid = MakeTCheck<"cuid">;

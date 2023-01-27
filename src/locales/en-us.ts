@@ -133,6 +133,12 @@ const enUS: TLocale = {
       case TIssueKind.Array.Sort:
         return `Expected ${ValueKind.Array} to be sorted`;
 
+      // Tuple
+      case TIssueKind.Tuple.Length:
+        return `Expected ${issue.payload.max === null ? "at least" : "exactly"} ${humanizeNum(
+          issue.payload.min
+        )} ${pluralize(issue.payload.min, "item", "items")}, received ${humanizeNum(issue.payload.received)}`;
+
       // Buffer
       case TIssueKind.Buffer.Min:
         return `Expected ${issue.payload.inclusive ? "at least" : "over"} ${humanizeNum(
@@ -181,7 +187,14 @@ const enUS: TLocale = {
 
       // Union
       case TIssueKind.Union.Invalid:
-        return `Union failed evaluate to any valid option: ${printIssues(
+        return `{ Unmatched union } ${printIssues(
+          issue.payload.errors.flatMap((err) => err.issues),
+          true
+        )}`;
+
+      // Intersection
+      case TIssueKind.Intersection.Invalid:
+        return `{ Invalid intersection } ${printIssues(
           issue.payload.errors.flatMap((err) => err.issues),
           true
         )}`;
@@ -206,7 +219,7 @@ function humanizeNum(n: number): string {
 }
 
 function printIssues(issues: readonly TIssue[], includeLabel?: boolean) {
-  return issues.map((iss) => `${includeLabel ? `[${iss.label}] ` : ""}${iss.message}`).join("; ");
+  return issues.map((iss) => `${includeLabel ? `${iss.label}: ` : ""}${iss.message}`).join("; ");
 }
 
 export default enUS;

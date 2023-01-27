@@ -4,7 +4,14 @@ module.exports = {
     node: true,
     es2021: true,
   },
-  extends: ["xo", "xo-typescript", "prettier"],
+  extends: [
+    "eslint/recommended",
+    "@typescript-eslint/recommended",
+    "@typescript-eslint/recommended-requiring-type-checking",
+    "xo",
+    "xo-typescript",
+    "prettier",
+  ],
   parserOptions: {
     ecmaVersion: "latest",
     sourceType: "module",

@@ -62,7 +62,7 @@ export type TParseContextDef<T extends AnyTType> = {
 export class TParseContext<T extends AnyTType = AnyTType> {
   private _status: TParseContextStatus;
   private _data: unknown;
-  private _path: ReadonlyArray<string | number>;
+  private readonly _path: ReadonlyArray<string | number>;
 
   private readonly _t: T;
   private readonly _parent: TParseContext | null;
@@ -156,11 +156,6 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     return this;
   }
 
-  pushPath(...path: TParseContextPath): this {
-    this._path = [...this.path, ...coercePath(path)];
-    return this;
-  }
-
   invalidate(): this {
     if (!this.valid) return this;
     this._status = TParseContextStatus.Invalid;
@@ -233,6 +228,11 @@ export class TParseContext<T extends AnyTType = AnyTType> {
       this._issues.push(fullIssue);
     }
 
+    return this;
+  }
+
+  addWarning(warning: TIssue): this {
+    this._warnings.push(warning);
     return this;
   }
 
