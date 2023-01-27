@@ -7,7 +7,12 @@ export function printValue(x: unknown, backticks?: boolean): string {
 }
 
 function stringify(x: unknown) {
-  return String.call(x);
+  return String(x);
+}
+
+function printSymbol(x: unknown) {
+  const { description } = x as symbol;
+  return `Symbol(${description ? printValue(description) : ""})`;
 }
 
 function printFunctionName(x: unknown) {
@@ -77,7 +82,7 @@ const printerMap: Record<ValueKind, ((x: unknown) => string) | string> = {
   [ValueKind.SetIterator]: ValueKind.SetIterator,
   [ValueKind.String]: (x) => `"${x as string}"`,
   [ValueKind.StringIterator]: ValueKind.StringIterator,
-  [ValueKind.Symbol]: (x) => `Symbol(${(x as symbol).description ?? ""})`,
+  [ValueKind.Symbol]: printSymbol,
   [ValueKind.True]: ValueKind.True,
   [ValueKind.Uint16Array]: ValueKind.Uint16Array,
   [ValueKind.Uint32Array]: ValueKind.Uint32Array,
