@@ -33,13 +33,14 @@ const Person = t
       .map(t.tuple([t.string(), t.bigint(), t.literal("a")], t.number()).readonly(), t.date().readonly())
       .readonly()
       .promise()
+      .promise()
       .readonly(),
     b: t.tuple([t.string(), t.bigint(), t.literal("a")], t.number()),
   })
   .deepPartial()
   .or(t.object({ asdasd: t.string() }));
 
-type PersonOut = t.output<typeof Person>;
+type PersonOut = t.inferFlattenedError<typeof Person>;
 type PersonIn = t.input<typeof Person>;
 
 console.log(

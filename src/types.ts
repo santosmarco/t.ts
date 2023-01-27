@@ -2883,6 +2883,10 @@ export class TObject<
     return this.augment(extension);
   }
 
+  setKey<K extends string, V extends AnyTType>(key: K, type: V) {
+    return this.augment({ [key]: type } as { [P in K]: V });
+  }
+
   merge<S1 extends TObjectShape, U1 extends TObjectUnknownKeys | null, C1 extends AnyTType | null>(
     other: TObject<S1, U1, C1>
   ) {
@@ -4392,7 +4396,7 @@ export type infer<T extends AnyTType> = output<T>;
 export type inferFormattedError<T extends AnyTType> = __<TFormattedErrorOf<T>>;
 export type inferFlattenedError<T extends AnyTType> = __<TFlattenedErrorOf<T>>;
 
-export type inferPaths<T extends AnyTType> = TPathsOf<T> extends infer P extends string ? P : never;
+export type paths<T extends AnyTType> = TPathsOf<T> extends infer P extends string ? P : never;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -4423,6 +4427,8 @@ function handleUnwrapDeep<T extends AnyTType, TN extends [TTypeName, ...TTypeNam
   return unwrapped as UnwrapDeep<T, TN[number]>;
 }
 
+/* ------------------------------------------------------------------------------------------------------------------ */
+
 export type DeepPartialTTupleItems<T extends readonly AnyTType[]> = T extends readonly []
   ? []
   : T extends readonly [infer H extends AnyTType, ...infer R extends readonly AnyTType[]]
@@ -4439,10 +4445,6 @@ type _DeepPartial<T extends AnyTType> = T extends TTuple<infer I, infer R>
   ? TOptional<TSet<_DeepPartial<U>>>
   : T extends TRecord<infer K, infer V>
   ? TOptional<TRecord<K, _DeepPartial<V>>>
-  : T extends TPromise<infer U>
-  ? TOptional<TPromise<_DeepPartial<U>>>
-  : T extends TReadonly<infer U>
-  ? TOptional<TReadonly<_DeepPartial<U>>>
   : T extends TObject<infer S, infer U, infer C>
   ? TOptional<TObject<{ [K in keyof S]: _DeepPartial<S[K]> }, U, C>>
   : TOptional<T>;
@@ -4474,13 +4476,13 @@ function deepPartialify(t: AnyTType): AnyTOptional {
       return t.mapKeys((k) => deepPartialify(k)).mapValues((v) => deepPartialify(v));
     }
 
-    if (t instanceof TPromise || t instanceof TReadonly) {
-      return t.modify((v) => deepPartialify(v));
-    }
+    // if (t instanceof TPromise || t instanceof TReadonly) {
+    //   return t.modify((v) => deepPartialify(v));
+    // }
 
     if (t instanceof TObject) {
       return TObject.create(
-        Object.fromEntries(Object.entries(t.props.shape).map(([k, v]) => [k, deepPartialify(v as AnyTType)] as const))
+        Object.fromEntries(Object.entries<AnyTType>(t.props.shape).map(([k, v]) => [k, deepPartialify(v)] as const))
       );
     }
 
