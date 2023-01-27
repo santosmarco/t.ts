@@ -16,6 +16,17 @@ export type Try<T, U, Catch = never> = T extends U ? T : Catch;
 export type _<T> = tf.IsEqual<T, unknown> extends true ? T : T extends BuiltIn ? T : { [K in keyof T]: T[K] } & {};
 export type __<T> = tf.IsEqual<T, unknown> extends true ? T : T extends BuiltIn ? T : { [K in keyof T]: __<T[K]> } & {};
 
+type _ReadonlyFlat<T> = tf.IsEqual<T, unknown> extends true
+  ? T
+  : T extends ReadonlyMap<infer K, infer V>
+  ? ReadonlyMap<K, V>
+  : T extends ReadonlySet<infer V>
+  ? ReadonlySet<V>
+  : T extends BuiltIn
+  ? T
+  : { readonly [K in keyof T]: T[K] } & {};
+export type ReadonlyFlat<T> = _<_ReadonlyFlat<T>>;
+
 type _ReadonlyDeep<T> = tf.IsEqual<T, unknown> extends true
   ? T
   : T extends BuiltIn
@@ -54,6 +65,14 @@ export type UnionToTuple<T, Acc extends readonly unknown[] = []> = [T] extends [
 export type OptionalKeys<T> = { [K in keyof T]: undefined extends T[K] ? K : never }[keyof T];
 export type RequiredKeys<T> = Exclude<keyof T, OptionalKeys<T>>;
 export type EnforceOptional<T> = Pick<T, RequiredKeys<T>> & Partial<Pick<T, OptionalKeys<T>>>;
+
+export type EnforceOptionalTuple<T extends readonly unknown[]> = T extends readonly []
+  ? []
+  : T extends readonly [infer H, ...infer R]
+  ? undefined extends H
+    ? [H?, ...EnforceOptionalTuple<R>]
+    : [H, ...EnforceOptionalTuple<R>]
+  : never;
 
 export type Merge<A, B> = Omit<A, keyof B> & B;
 
