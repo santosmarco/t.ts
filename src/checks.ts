@@ -6,6 +6,8 @@ import { omit, type AtLeastOne } from "./utils";
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export const TCheckKind = {
+  Cuid: "cuid",
+  Email: "email",
   Finite: "finite",
   Integer: "integer",
   Length: "length",
@@ -14,6 +16,7 @@ export const TCheckKind = {
   Min: "min",
   MinKeys: "min_keys",
   Multiple: "multiple",
+  Pattern: "pattern",
   Port: "port",
   Precision: "precision",
   Range: "range",
@@ -21,6 +24,14 @@ export const TCheckKind = {
   Size: "size",
   Sort: "sort",
   Unique: "unique",
+  Url: "url",
+  Uuid: "uuid",
+  // ——— Transforms
+  Trim: "trim",
+  Uppercase: "uppercase",
+  Lowercase: "lowercase",
+  Capitalize: "capitalize",
+  Uncapitalize: "uncapitalize",
 } as const;
 
 export type TCheckKind = typeof TCheckKind[keyof typeof TCheckKind];
@@ -51,15 +62,27 @@ export namespace TCheck {
     { comparator: ((a: any, b: any, x: number, y: number, arr: any[]) => number) | undefined; strict: boolean }
   >;
 
+  export type Cuid = MakeTCheck<"cuid">;
+  export type Email = MakeTCheck<"email">;
+  export type Pattern = MakeTCheck<"pattern", { pattern: RegExp; type: "disallow" | "enforce"; name: string }>;
+  export type Url = MakeTCheck<"url">;
+  export type Uuid = MakeTCheck<"uuid">;
+  // ——— Transforms
+  export type Trim = MakeTCheck<"trim">;
+  export type Uppercase = MakeTCheck<"uppercase">;
+  export type Lowercase = MakeTCheck<"lowercase">;
+  export type Capitalize = MakeTCheck<"capitalize">;
+  export type Uncapitalize = MakeTCheck<"uncapitalize">;
+
+  export type Finite = MakeTCheck<"finite">;
   export type Integer = MakeTCheck<"integer", { strict: boolean }>;
-  export type Precision = MakeTCheck<"precision", { value: number; inclusive: boolean; strict: boolean }>;
   export type Multiple = MakeTCheck<"multiple", { value: number }>;
   export type Port = MakeTCheck<"port">;
+  export type Precision = MakeTCheck<"precision", { value: number; inclusive: boolean; strict: boolean }>;
   export type Safe = MakeTCheck<"safe">;
-  export type Finite = MakeTCheck<"finite">;
 
-  export type MinKeys = MakeTCheck<"min_keys", { value: number; inclusive: boolean }>;
   export type MaxKeys = MakeTCheck<"max_keys", { value: number; inclusive: boolean }>;
+  export type MinKeys = MakeTCheck<"min_keys", { value: number; inclusive: boolean }>;
 }
 
 export function validateMin<V>(value: V, check: TCheck.Min<V> | TCheck.MinKeys): boolean {

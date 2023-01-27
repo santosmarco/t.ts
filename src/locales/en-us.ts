@@ -29,6 +29,44 @@ const enUS: TLocale = {
           "value" in issue.payload.received ? printValue(issue.payload.received.value) : issue.payload.received.type
         }`;
 
+      // String
+      case TIssueKind.String.Min:
+        return `Expected ${issue.payload.inclusive ? "at least" : "over"} ${humanizeNum(
+          issue.payload.value
+        )} ${pluralize(issue.payload.value, "character", "characters")}, received ${humanizeNum(
+          issue.payload.received
+        )}`;
+      case TIssueKind.String.Max:
+        return `Expected ${issue.payload.inclusive ? "at most" : "under"} ${humanizeNum(
+          issue.payload.value
+        )} ${pluralize(issue.payload.value, "character", "characters")}, received ${humanizeNum(
+          issue.payload.received
+        )}`;
+      case TIssueKind.String.Length:
+        return `Expected exactly ${humanizeNum(issue.payload.value)} ${pluralize(
+          issue.payload.value,
+          "character",
+          "characters"
+        )}, received ${humanizeNum(issue.payload.received)}`;
+      case TIssueKind.String.Range:
+        return `Expected between ${humanizeNum(issue.payload.min)} (${
+          issue.payload.inclusive.startsWith("[") ? "inclusive" : "exclusive"
+        }) and ${humanizeNum(issue.payload.max)} (${
+          issue.payload.inclusive.endsWith("]") ? "inclusive" : "exclusive"
+        }) ${pluralize(issue.payload.min, "character", "characters")}, received ${humanizeNum(issue.payload.received)}`;
+      case TIssueKind.String.Pattern:
+        return `Expected a string ${issue.payload.type === "enforce" ? "matching" : "not matching"} the pattern ${
+          issue.payload.name
+        }`;
+      case TIssueKind.String.Email:
+        return "Expected a valid email address";
+      case TIssueKind.String.Url:
+        return "Expected a valid URL";
+      case TIssueKind.String.Cuid:
+        return "Expected a valid CUID";
+      case TIssueKind.String.Uuid:
+        return "Expected a valid UUID";
+
       // Number
       case TIssueKind.Number.Integer:
         return "Expected integer, received float";
@@ -137,6 +175,17 @@ const enUS: TLocale = {
           issue.payload.error.issues
         )}`;
 
+      // Object
+      case TIssueKind.Object.UnknownKey:
+        return `Unknown key ${printValue(issue.payload.key, true)} found in ${ValueKind.Object}`;
+
+      // Union
+      case TIssueKind.Union.Invalid:
+        return `Union failed evaluate to any valid option: ${printIssues(
+          issue.payload.errors.flatMap((err) => err.issues),
+          true
+        )}`;
+
       default:
         assertNever(issue);
     }
@@ -156,8 +205,8 @@ function humanizeNum(n: number): string {
   );
 }
 
-function printIssues(issues: readonly TIssue[]) {
-  return issues.map((iss) => iss.message).join("; ");
+function printIssues(issues: readonly TIssue[], includeLabel?: boolean) {
+  return issues.map((iss) => `${includeLabel ? `[${iss.label}] ` : ""}${iss.message}`).join("; ");
 }
 
 export default enUS;

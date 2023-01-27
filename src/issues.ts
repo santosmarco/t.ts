@@ -1,7 +1,7 @@
 import type * as tf from "type-fest";
 import type { TCheck, TCheckBase } from "./checks";
-import { type TError } from "./error";
-import { type TEnumValue, type TEnumValues, type TLiteralValue } from "./types";
+import type { TError } from "./error";
+import type { TEnumValue, TLiteralValue } from "./types";
 import type { GetNestedValues } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -19,6 +19,25 @@ export const TIssueKind = {
   },
   Enum: {
     Invalid: "enum.invalid",
+  },
+  String: {
+    Min: "string.min",
+    Max: "string.max",
+    Length: "string.length",
+    Range: "string.range",
+    Pattern: "string.pattern",
+    Email: "string.email",
+    Url: "string.url",
+    Cuid: "string.cuid",
+    Uuid: "string.uuid",
+    Hex: "string.hex",
+    Base64: "string.base64",
+    Ascii: "string.ascii",
+    DataUri: "string.data_uri",
+    Hostname: "string.hostname",
+    Ip: "string.ip",
+    IpVersion: "string.ip_version",
+    Uri: "string.uri",
   },
   Number: {
     Integer: "number.integer",
@@ -58,6 +77,12 @@ export const TIssueKind = {
   },
   Map: {
     InvalidKey: "map.invalid_key",
+  },
+  Object: {
+    UnknownKey: "object.unknown_key",
+  },
+  Union: {
+    Invalid: "union.invalid",
   },
 } as const;
 
@@ -121,6 +146,18 @@ export namespace TIssue {
     >;
   }
 
+  export namespace String {
+    export type Min = FromTCheck<"string.min", TCheck.Min, { received: number }>;
+    export type Max = FromTCheck<"string.max", TCheck.Max, { received: number }>;
+    export type Length = FromTCheck<"string.length", TCheck.Length, { received: number }>;
+    export type Range = FromTCheck<"string.range", TCheck.Range, { received: number }>;
+    export type Pattern = FromTCheck<"string.pattern", TCheck.Pattern>;
+    export type Email = FromTCheck<"string.email", TCheck.Email>;
+    export type Url = FromTCheck<"string.url", TCheck.Url>;
+    export type Cuid = FromTCheck<"string.cuid", TCheck.Cuid>;
+    export type Uuid = FromTCheck<"string.uuid", TCheck.Uuid>;
+  }
+
   export namespace Number {
     export type Integer = FromTCheck<"number.integer", TCheck.Integer>;
     export type Precision = FromTCheck<"number.precision", TCheck.Precision, { received: number }>;
@@ -169,6 +206,14 @@ export namespace TIssue {
   export namespace Map {
     export type InvalidKey = MakeTIssue<"map.invalid_key", { key: unknown; error: TError }>;
   }
+
+  export namespace Object {
+    export type UnknownKey = MakeTIssue<"object.unknown_key", { key: PropertyKey }>;
+  }
+
+  export namespace Union {
+    export type Invalid = MakeTIssue<"union.invalid", { errors: TError[] }>;
+  }
 }
 
 export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
@@ -180,6 +225,16 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Literal.Invalid
   // Enum
   | TIssue.Enum.Invalid
+  // String
+  | TIssue.String.Min
+  | TIssue.String.Max
+  | TIssue.String.Length
+  | TIssue.String.Range
+  | TIssue.String.Pattern
+  | TIssue.String.Email
+  | TIssue.String.Url
+  | TIssue.String.Cuid
+  | TIssue.String.Uuid
   // Number
   | TIssue.Number.Integer
   | TIssue.Number.Precision
@@ -212,6 +267,10 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Record.MinKeys
   | TIssue.Record.MaxKeys
   // Map
-  | TIssue.Map.InvalidKey,
+  | TIssue.Map.InvalidKey
+  // Object
+  | TIssue.Object.UnknownKey
+  // Union
+  | TIssue.Union.Invalid,
   { readonly kind: K }
 >;

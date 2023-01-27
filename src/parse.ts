@@ -4,7 +4,7 @@ import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
 import { processCreateOptions, type AnyTOptions, type ProcessedTOptions, type ProcessedTParseOptions } from "./options";
 import type { AnyTType } from "./types";
-import { ValueKind, conditionalOmitDeep, isKindOf, kindOf } from "./utils";
+import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TParse                                                       */
@@ -206,7 +206,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     const locale = TGlobal.getLocale();
     const globalErrorMap = TGlobal.getErrorMap();
 
-    const sanitizedIssue = conditionalOmitDeep(issue, ValueKind.Function);
+    const sanitizedIssue = conditionalOmitKindDeep(issue, ValueKind.Function);
 
     const issuePath = options?.pushPath ? [...this.path, ...coercePath(options.pushPath)] : this.path;
 

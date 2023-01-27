@@ -1,6 +1,4 @@
-import joi from "joi";
 import { t } from "./src";
-import { kindOf } from "./src/utils";
 
 // Console.log(t.bigint().promise().defined().parseAsync(undefined).then(console.log));
 
@@ -46,17 +44,21 @@ import { kindOf } from "./src/utils";
 // // Console.log(joi.object().pattern(/aaa/, joi.string()).validate({ a: 2 }, { stripUnknown: false }).error.details);
 
 // console.log(t.literal(true).warnOnly().safeParse(false));
-function a() {}
+const Person = t
+  .object({
+    name: t.string(),
+    age: t.number(),
+    address: t
+      .object({
+        street: t.string(),
+        city: t.string().promise(),
+      })
+      .partial(["street"]),
+  })
+  .strict();
+
+type Person = t.infer<typeof Person>;
+
 console.log(
-  t
-    .map(t.string().optional(), t.number())
-    .array()
-    .safeParse([new Map([[new Set(["a"]), 1]])]),
-  kindOf(() => "a"),
-  new WeakMap([[{ b: 3 }, { a: 2 }]]),
-  new Set(["a"]),
-  new Error("a").toString(),
-  String(/abc/),
-  String(Number("b")),
-  String(Buffer.from("a"))
+  Person.or(t.string()).safeParse({ name: "marco", age: 30, address: { city: "2" }, zz: 2n, ele: undefined })
 );
