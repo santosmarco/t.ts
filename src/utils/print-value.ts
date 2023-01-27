@@ -84,7 +84,7 @@ const printerMap: Record<ValueKind, ((x: unknown) => string) | string> = {
   [ValueKind.Uint8Array]: ValueKind.Uint8Array,
   [ValueKind.Uint8ClampedArray]: ValueKind.Uint8ClampedArray,
   [ValueKind.Undefined]: stringify,
-  [ValueKind.Unknown]: ValueKind.Unknown,
+  [ValueKind.Unknown]: (x) => JSON.stringify(x, null, 2),
   [ValueKind.Void]: ValueKind.Void,
   [ValueKind.WeakMap]: ValueKind.WeakMap,
   [ValueKind.WeakSet]: ValueKind.WeakSet,
