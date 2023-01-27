@@ -3564,12 +3564,12 @@ export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTTy
     return this.props.else;
   }
 
-  static create<C extends AnyTType, T extends AnyTType, E extends AnyTType>(
+  static create<C extends AnyTType, T extends TType<Merge<AnyBrandedTDef, { $In: OutputOf<C> }>>, E extends AnyTType>(
     condition: C,
     resolution: { then: T; else: E },
     options?: TOptions
   ): TIf<C, T, E>;
-  static create<C extends AnyTType, T extends AnyTType>(
+  static create<C extends AnyTType, T extends TType<Merge<AnyBrandedTDef, { $In: OutputOf<C> }>>>(
     condition: C,
     resolution: { then: T },
     options?: TOptions
@@ -3579,7 +3579,7 @@ export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTTy
     resolution: { else: E },
     options?: TOptions
   ): TIf<C, null, E>;
-  static create<C extends AnyTType, T extends AnyTType, E extends AnyTType>(
+  static create<C extends AnyTType, T extends TType<Merge<AnyBrandedTDef, { $In: OutputOf<C> }>>, E extends AnyTType>(
     condition: C,
     resolution: { then?: T; else?: E },
     options?: TOptions
