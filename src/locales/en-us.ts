@@ -1,7 +1,6 @@
-import type * as tf from "type-fest";
-import type { TError } from "../error";
-import { TIssueKind } from "../issues";
-import { assertNever } from "../utils";
+import { TIssueKind, type TIssue } from "../issues";
+import { ValueKind, assertNever } from "../utils";
+import { printValue } from "../utils/print-value";
 import type { TLocale } from "./_base";
 
 const enUS: TLocale = {
@@ -40,15 +39,15 @@ const enUS: TLocale = {
           issue.payload.received
         )}`;
       case TIssueKind.Number.Min:
-        return `Expected number to be ${
+        return `Expected a number ${
           issue.payload.inclusive ? "greater than or equal to" : "greater than"
         } ${humanizeNum(issue.payload.value)}`;
       case TIssueKind.Number.Max:
-        return `Expected number to be ${issue.payload.inclusive ? "less than or equal to" : "less than"} ${humanizeNum(
+        return `Expected a number ${issue.payload.inclusive ? "less than or equal to" : "less than"} ${humanizeNum(
           issue.payload.value
         )}`;
       case TIssueKind.Number.Range:
-        return `Expected number to be between ${humanizeNum(issue.payload.min)} (${
+        return `Expected a number between ${humanizeNum(issue.payload.min)} (${
           issue.payload.inclusive.startsWith("[") ? "inclusive" : "exclusive"
         }) and ${humanizeNum(issue.payload.max)} (${
           issue.payload.inclusive.endsWith("]") ? "inclusive" : "exclusive"
@@ -62,7 +61,7 @@ const enUS: TLocale = {
       case TIssueKind.Number.Finite:
         return "Expected a finite number";
 
-      // Array + Set
+      // Array/Set
       case TIssueKind.Array.Min:
       case TIssueKind.Set.Min:
         return `Expected ${issue.payload.inclusive ? "at least" : "over"} ${humanizeNum(
@@ -94,7 +93,7 @@ const enUS: TLocale = {
           "duplicates"
         )}`;
       case TIssueKind.Array.Sort:
-        return "Expected Array to be sorted";
+        return `Expected ${ValueKind.Array} to be sorted`;
 
       // Buffer
       case TIssueKind.Buffer.Min:
@@ -120,7 +119,9 @@ const enUS: TLocale = {
 
       // Record
       case TIssueKind.Record.InvalidKey:
-        return `Invalid key [ ${printValue(issue.payload.key)} ] in object: ${printIssues(issue.payload.error)}`;
+        return `Invalid key ${printValue(issue.payload.key, true)} in ${ValueKind.Object}: ${printIssues(
+          issue.payload.error.issues
+        )}`;
       case TIssueKind.Record.MinKeys:
         return `Expected ${issue.payload.inclusive ? "at least" : "over"} ${humanizeNum(
           issue.payload.value
@@ -130,11 +131,17 @@ const enUS: TLocale = {
           issue.payload.value
         )} ${pluralize(issue.payload.value, "key", "keys")}, received ${humanizeNum(issue.payload.received)}`;
 
+      // Map
+      case TIssueKind.Map.InvalidKey:
+        return `Invalid key ${printValue(issue.payload.key, true)} in ${ValueKind.Map}: ${printIssues(
+          issue.payload.error.issues
+        )}`;
+
       default:
         assertNever(issue);
     }
   },
-  defaultLabel: "data",
+  defaultLabel: "value",
 };
 
 function pluralize(n: number, singular: string, plural: string): string {
@@ -149,22 +156,8 @@ function humanizeNum(n: number): string {
   );
 }
 
-function printValue(x: tf.Primitive, backticks?: boolean): string {
-  let printed;
-
-  if (x === null || x === undefined || typeof x === "boolean" || typeof x === "number" || typeof x === "symbol") {
-    printed = String(x);
-  } else if (typeof x === "bigint") {
-    printed = `${x}n`;
-  } else {
-    printed = `"${x}"`;
-  }
-
-  return backticks ? `\`${printed}\`` : printed;
-}
-
-function printIssues(err: TError) {
-  return err.issues.map((iss) => iss.message).join("; ");
+function printIssues(issues: readonly TIssue[]) {
+  return issues.map((iss) => iss.message).join("; ");
 }
 
 export default enUS;

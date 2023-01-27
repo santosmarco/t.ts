@@ -56,6 +56,9 @@ export const TIssueKind = {
     MinKeys: "record.min_keys",
     MaxKeys: "record.max_keys",
   },
+  Map: {
+    InvalidKey: "map.invalid_key",
+  },
 } as const;
 
 export type TIssueKind = GetNestedValues<typeof TIssueKind>;
@@ -162,6 +165,10 @@ export namespace TIssue {
     export type MinKeys = FromTCheck<"record.min_keys", TCheck.MinKeys, { received: number }>;
     export type MaxKeys = FromTCheck<"record.max_keys", TCheck.MaxKeys, { received: number }>;
   }
+
+  export namespace Map {
+    export type InvalidKey = MakeTIssue<"map.invalid_key", { key: unknown; error: TError }>;
+  }
 }
 
 export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
@@ -203,6 +210,8 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   // Record
   | TIssue.Record.InvalidKey
   | TIssue.Record.MinKeys
-  | TIssue.Record.MaxKeys,
+  | TIssue.Record.MaxKeys
+  // Map
+  | TIssue.Map.InvalidKey,
   { readonly kind: K }
 >;

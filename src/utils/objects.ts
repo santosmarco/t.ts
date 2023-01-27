@@ -12,11 +12,11 @@ export function debrand<T>(x: T) {
 }
 
 export function pick<T extends object, K extends keyof T>(x: T, k: readonly K[]) {
-  return Object.fromEntries(Object.entries(x).filter(([k2]) => k.includes(k2 as K))) as Pick<T, K>;
+  return Object.fromEntries(Object.entries(x).filter(([k_]) => includes(k, k_))) as Pick<T, K>;
 }
 
 export function omit<T extends object, K extends keyof T>(x: T, k: readonly K[]) {
-  return Object.fromEntries(Object.entries(x).filter(([k2]) => !k.includes(k2 as K))) as Omit<T, K>;
+  return Object.fromEntries(Object.entries(x).filter(([k_]) => !includes(k, k_))) as Omit<T, K>;
 }
 
 export function conditionalPickValues<T extends object, V extends tf.Primitive>(x: T, v: readonly V[]) {

@@ -1,5 +1,6 @@
 import joi from "joi";
 import { t } from "./src";
+import { kindOf } from "./src/utils";
 
 // Console.log(t.bigint().promise().defined().parseAsync(undefined).then(console.log));
 
@@ -45,3 +46,17 @@ import { t } from "./src";
 // // Console.log(joi.object().pattern(/aaa/, joi.string()).validate({ a: 2 }, { stripUnknown: false }).error.details);
 
 // console.log(t.literal(true).warnOnly().safeParse(false));
+function a() {}
+console.log(
+  t
+    .map(t.string().optional(), t.number())
+    .array()
+    .safeParse([new Map([[new Set(["a"]), 1]])]),
+  kindOf(() => "a"),
+  new WeakMap([[{ b: 3 }, { a: 2 }]]),
+  new Set(["a"]),
+  new Error("a").toString(),
+  String(/abc/),
+  String(Number("b")),
+  String(Buffer.from("a"))
+);
