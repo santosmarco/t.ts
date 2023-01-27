@@ -1,9 +1,9 @@
 import type * as tf from "type-fest";
 import { ValueKind, isKindOf, isPlainObject } from "./kind-of";
 import { enbrand } from "./objects";
-import type { Branded } from "./types";
+import type { BRANDED } from "./types";
 
-export function cloneDeep<T>(x: T): Branded<T, "__deepCloned"> {
+export function cloneDeep<T>(x: T): BRANDED<T, "__deepCloned"> {
   return enbrand(
     ((): T => {
       if (isKindOf(x, ValueKind.Object)) {

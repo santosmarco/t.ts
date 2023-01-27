@@ -1,3 +1,4 @@
+import type { F } from "ts-toolbelt";
 import type * as tf from "type-fest";
 import {
   TCheckKind,
@@ -10,7 +11,7 @@ import {
   type TCheck,
 } from "./checks";
 import type { AnyBrandedTDef, MakeTDef, TCtorDef, TRuntimeDef } from "./def";
-import type { TError, TErrorMap } from "./error";
+import type { TError, TErrorMap, TFlattenedErrorOf, TFormattedErrorOf } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind } from "./issues";
 import { parseMaybeDescriptive, type DescriptiveWithValue } from "./manifest";
@@ -21,8 +22,17 @@ import {
   type TOptions,
   type TParseOptions,
 } from "./options";
-import { TParseContext, type TParseResultOf, type TParseResultSyncOf } from "./parse";
 import {
+  TParseContext,
+  TParseContextIssueData,
+  TParseContextPath,
+  TParseResult,
+  type TParseResultOf,
+  type TParseResultSyncOf,
+} from "./parse";
+import {
+  BRANDED,
+  Unbranded,
   ValueKind,
   assertNever,
   cloneDeep,
@@ -51,14 +61,18 @@ export const TTypeName = {
   Array: "TArray",
   BigInt: "TBigInt",
   Boolean: "TBoolean",
+  Brand: "TBrand",
   Buffer: "TBuffer",
   Catch: "TCatch",
+  Custom: "TCustom",
   Date: "TDate",
   Default: "TDefault",
   Defined: "TDefined",
+  Effects: "TEffects",
   Enum: "TEnum",
   False: "TFalse",
   If: "TIf",
+  InstanceOf: "TInstanceOf",
   Intersection: "TIntersection",
   Lazy: "TLazy",
   Literal: "TLiteral",
@@ -91,13 +105,13 @@ export type TTypeName = typeof TTypeName[keyof typeof TTypeName];
 export const tt = Symbol("tt");
 export type tt = typeof tt;
 
-export abstract class TType<D extends AnyBrandedTDef> {
-  declare readonly $O: D["$Out"];
-  declare readonly $I: D["$In"];
+export abstract class TType<Def extends AnyBrandedTDef> {
+  declare readonly $O: Def["$Out"];
+  declare readonly $I: Def["$In"];
 
-  protected readonly _def: TRuntimeDef<D>;
+  protected readonly _def: TRuntimeDef<Def>;
 
-  protected constructor(def: TCtorDef<D>) {
+  protected constructor(def: TCtorDef<Def>) {
     const { typeName, props = null, options, manifest = {}, checks = [] } = def;
 
     this._def = cloneDeep({ typeName, props, options: debrand(options), manifest, checks });
@@ -123,10 +137,14 @@ export abstract class TType<D extends AnyBrandedTDef> {
     this.promisable = this.promisable.bind(this);
     this.or = this.or.bind(this);
     this.and = this.and.bind(this);
+    // this.brand = this.brand.bind(this);
     this.default = this.default.bind(this);
     this.catch = this.catch.bind(this);
     this.pipe = this.pipe.bind(this);
     this.lazy = this.lazy.bind(this);
+    this.preprocess = this.preprocess.bind(this);
+    this.refine = this.refine.bind(this);
+    this.transform = this.transform.bind(this);
     // Options
     this.abortEarly = this.abortEarly.bind(this);
     this.label = this.label.bind(this);
@@ -152,23 +170,23 @@ export abstract class TType<D extends AnyBrandedTDef> {
 
   /* ---------------------------------------------------------------------------------------------------------------- */
 
-  get typeName(): D["$TypeName"] {
+  get typeName(): Def["$TypeName"] {
     return this._def.typeName;
   }
 
-  get props(): D["$Props"] {
+  get props(): Def["$Props"] {
     return this._def.props;
   }
 
-  get options(): D["$Options"] {
+  get options(): Def["$Options"] {
     return this._def.options;
   }
 
-  get manifest(): D["$Manifest"] {
+  get manifest(): Def["$Manifest"] {
     return this._def.manifest;
   }
 
-  get checks(): D["$Checks"] {
+  get checks(): Def["$Checks"] {
     return this._def.checks;
   }
 
@@ -199,7 +217,7 @@ export abstract class TType<D extends AnyBrandedTDef> {
     return result;
   }
 
-  parse(data: unknown, options?: TParseOptions): this["$O"] {
+  parse(data: unknown, options?: TParseOptions): Def["$Out"] {
     const result = this.safeParse(data, options);
 
     if (!result.ok) {
@@ -214,7 +232,7 @@ export abstract class TType<D extends AnyBrandedTDef> {
     return result;
   }
 
-  async parseAsync(data: unknown, options?: TParseOptions): Promise<this["$O"]> {
+  async parseAsync(data: unknown, options?: TParseOptions): Promise<Def["$Out"]> {
     const result = await this.safeParseAsync(data, options);
 
     if (!result.ok) {
@@ -224,7 +242,7 @@ export abstract class TType<D extends AnyBrandedTDef> {
     return result.data;
   }
 
-  guard(data: unknown): data is this["$O"] {
+  guard(data: unknown): data is Def["$Out"] {
     return this.safeParse(data).ok;
   }
 
@@ -274,24 +292,52 @@ export abstract class TType<D extends AnyBrandedTDef> {
     return TIntersection._create([this, ...types], pickTransferrableOptions(this.options));
   }
 
-  default<D extends Exclude<this["$I"], undefined>>(getDefault: () => D): TDefault<this, D>;
-  default<D extends Exclude<this["$I"], undefined>>(defaultValue: D): TDefault<this, D>;
-  default<D extends Exclude<this["$I"], undefined>>(defaultValueOrGetter: D | (() => D)): TDefault<this, D> {
+  brand<B>(getBrand: () => F.Narrow<B>): TBrand<this, B>;
+  brand<B>(brand: F.Narrow<B>): TBrand<this, B>;
+  brand<B>(brandValueOrGetter: F.Narrow<B> | (() => F.Narrow<B>)): TBrand<this, B> {
+    return TBrand.create<this, B>(this, brandValueOrGetter, pickTransferrableOptions(this.options));
+  }
+
+  default<D extends Exclude<InputOf<this>, undefined>>(getDefault: () => F.Narrow<D>): TDefault<this, D>;
+  default<D extends Exclude<InputOf<this>, undefined>>(defaultValue: F.Narrow<D>): TDefault<this, D>;
+  default<D extends Exclude<InputOf<this>, undefined>>(
+    defaultValueOrGetter: F.Narrow<D> | (() => F.Narrow<D>)
+  ): TDefault<this, D> {
     return TDefault.create(this, defaultValueOrGetter, pickTransferrableOptions(this.options));
   }
 
-  catch<C extends this["$O"]>(getCatch: () => C): TCatch<this, C>;
-  catch<C extends this["$O"]>(catchValue: C): TCatch<this, C>;
-  catch<C extends this["$O"]>(catchValueOrGetter: C | (() => C)): TCatch<this, C> {
+  catch<C extends Unbranded<OutputOf<this>>>(getCatch: () => F.Narrow<C>): TCatch<this, C>;
+  catch<C extends Unbranded<OutputOf<this>>>(catchValue: F.Narrow<C>): TCatch<this, C>;
+  catch<C extends Unbranded<OutputOf<this>>>(catchValueOrGetter: F.Narrow<C> | (() => F.Narrow<C>)): TCatch<this, C> {
     return TCatch.create(this, catchValueOrGetter, pickTransferrableOptions(this.options));
   }
 
-  pipe<T extends TType<Merge<AnyBrandedTDef, { $In: D["$In"] }>>>(type: T): TPipeline<this, T> {
+  pipe<T extends TType<Merge<AnyBrandedTDef, { $In: Def["$In"] }>>>(type: T): TPipeline<this, T> {
     return TPipeline.create(this, type, pickTransferrableOptions(this.options));
   }
 
   lazy(): TLazy<this> {
     return TLazy.create(() => this, pickTransferrableOptions(this.options));
+  }
+
+  preprocess<T extends InputOf<this>>(preprocess: (data: unknown) => T): TPreprocess<this, T> {
+    return TPreprocess.create(this, preprocess, pickTransferrableOptions(this.options));
+  }
+
+  refine<Out extends OutputOf<this>>(
+    refinement: (data: OutputOf<this>, ctx: TEffectCtx) => data is Out,
+    data?: TRefinementData<this>
+  ): TRefinement<this, Out>;
+  refine(
+    refinement: (data: OutputOf<this>, ctx: TEffectCtx) => unknown | Promise<unknown>,
+    data?: TRefinementData<this>
+  ): TRefinement<this, OutputOf<this>>;
+  refine(refinement: (data: OutputOf<this>, ctx: TEffectCtx) => unknown, data?: TRefinementData<this>) {
+    return TRefinement.create(this, refinement, data, pickTransferrableOptions(this.options));
+  }
+
+  transform<Out>(transform: (data: OutputOf<this>) => Out): TTransform<this, Out> {
+    return TTransform.create(this, transform, pickTransferrableOptions(this.options));
   }
 
   /* ---------------------------------------------------------------------------------------------------------------- */
@@ -335,8 +381,8 @@ export abstract class TType<D extends AnyBrandedTDef> {
 
   examples(
     examples: tf.RequireAtLeastOne<{
-      in: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<D["$In"]>>>;
-      out: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<D["$Out"]>>>;
+      in: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<Def["$In"]>>>;
+      out: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<Def["$Out"]>>>;
     }>
   ): this {
     const currExamplesIn = this._def.manifest.examples?.in ?? [];
@@ -389,8 +435,8 @@ export abstract class TType<D extends AnyBrandedTDef> {
   /* ---------------------------------------------------------------------------------------------------------------- */
 
   protected _addCheck(
-    check: Exclude<D["$Checks"], null>[number],
-    options?: { unique?: boolean; remove?: AtLeastOne<Exclude<D["$Checks"], null>[number]["kind"]> }
+    check: Exclude<Def["$Checks"], null>[number],
+    options?: { unique?: boolean; remove?: AtLeastOne<Exclude<Def["$Checks"], null>[number]["kind"]> }
   ) {
     let self = this.clone();
 
@@ -405,15 +451,15 @@ export abstract class TType<D extends AnyBrandedTDef> {
     return self._construct({ ...this._def, checks: [...(this._def.checks ?? []), check] });
   }
 
-  protected _removeChecks(...checks: AtLeastOne<Exclude<D["$Checks"], null>[number]["kind"]>) {
+  protected _removeChecks(...checks: AtLeastOne<Exclude<Def["$Checks"], null>[number]["kind"]>) {
     return this._construct({
       ...this._def,
       checks: (this._def.checks ?? []).filter((check) => !checks.includes(check.kind)),
     });
   }
 
-  protected _construct<T = this>(def?: tf.Except<TRuntimeDef<D>, "typeName">): T {
-    return Reflect.construct<[def: TRuntimeDef<D>], T>(this.constructor as new (def: TRuntimeDef<D>) => T, [
+  protected _construct<T = this>(def?: tf.Except<TRuntimeDef<Def>, "typeName">): T {
+    return Reflect.construct<[def: TRuntimeDef<Def>], T>(this.constructor as new (def: TRuntimeDef<Def>) => T, [
       { ...this._def, ...def },
     ]);
   }
@@ -427,8 +473,8 @@ export abstract class TType<D extends AnyBrandedTDef> {
 
 export type AnyTType = TType<any>;
 
-export type OutputOf<T extends AnyTType> = tf.Simplify<T["$O"]>;
-export type InputOf<T extends AnyTType> = tf.Simplify<T["$I"]>;
+export type OutputOf<T> = T extends { readonly $O: infer U } ? U : never;
+export type InputOf<T> = T extends { readonly $I: infer U } ? U : never;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                        TAny                                                        */
@@ -2830,6 +2876,39 @@ export type AnyTObject = TObject<any, TObjectUnknownKeys | null, AnyTType | null
 export type SomeTObject = TObject<TObjectShape, TObjectUnknownKeys | null, AnyTType | null>;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                     TInstanceOf                                                    */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TInstanceOfDef<T extends abstract new (...args: readonly any[]) => any> = MakeTDef<{
+  $Out: InstanceType<T>;
+  $In: InstanceType<T>;
+  $TypeName: "TInstanceOf";
+  $Props: { readonly ctor: T };
+}>;
+
+export class TInstanceOf<T extends abstract new (...args: readonly any[]) => any> extends TType<TInstanceOfDef<T>> {
+  _parse(ctx: TParseContext<this>) {
+    if (!isKindOf(ctx.data, ValueKind.Object)) {
+      return ctx.invalidType({ expected: ValueKind.Object }).return();
+    }
+
+    if (!(ctx.data instanceof this.ctor)) {
+      return ctx.invalidType({ expected: this.ctor.name }).return();
+    }
+
+    return ctx.return(ctx.data as InstanceType<T>);
+  }
+
+  get ctor() {
+    return this.props.ctor;
+  }
+
+  static create<T extends abstract new (...args: readonly any[]) => any>(ctor: T, options?: TOptions) {
+    return new TInstanceOf({ typeName: TTypeName.InstanceOf, props: { ctor }, options: processCreateOptions(options) });
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TPromise                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -3088,6 +3167,69 @@ export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> {
 export type AnyTLazy = TLazy<AnyTType>;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                       TBrand                                                       */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TBrandDef<T extends AnyTType, B> = MakeTDef<{
+  $Out: BRANDED<OutputOf<T>, B>;
+  $In: InputOf<T>;
+  $TypeName: "TBrand";
+  $Props: { readonly underlying: T; readonly getBrand: () => B };
+}>;
+
+export class TBrand<T extends AnyTType, B> extends TType<TBrandDef<T, B>> {
+  _parse(ctx: TParseContext<this>) {
+    return this.underlying._parse(ctx.child(this.underlying, ctx.data));
+  }
+
+  get underlying(): T {
+    return this.props.underlying;
+  }
+
+  get brandValue(): B {
+    return this.props.getBrand();
+  }
+
+  unwrap(): T {
+    return this.underlying;
+  }
+
+  unwrapDeep(): UnwrapDeep<T, "TBrand"> {
+    return handleUnwrapDeep(this.underlying, [TTypeName.Brand]);
+  }
+
+  removeBrand(): T {
+    return this.underlying;
+  }
+
+  static create<T extends AnyTType, B>(underlying: T, getBrand: () => F.Narrow<B>, options?: TOptions): TBrand<T, B>;
+  static create<T extends AnyTType, B>(underlying: T, brand: F.Narrow<B>, options?: TOptions): TBrand<T, B>;
+  static create<T extends AnyTType, B>(
+    underlying: T,
+    brandValueOrGetter: F.Narrow<B> | (() => F.Narrow<B>),
+    options?: TOptions
+  ): TBrand<T, B>;
+  static create<T extends AnyTType, B>(
+    underlying: T,
+    brandValueOrGetter: F.Narrow<B> | (() => F.Narrow<B>),
+    options?: TOptions
+  ): TBrand<T, B> {
+    return new TBrand({
+      typeName: TTypeName.Brand,
+      props: {
+        underlying,
+        getBrand: (isKindOf(brandValueOrGetter, ValueKind.Function)
+          ? brandValueOrGetter
+          : () => brandValueOrGetter) as () => B,
+      },
+      options: processCreateOptions(options),
+    });
+  }
+}
+
+export type AnyTBrand = TBrand<AnyTType, any>;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TDefault                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -3127,22 +3269,22 @@ export class TDefault<T extends AnyTType, D extends Exclude<InputOf<T>, undefine
 
   static create<T extends AnyTType, D extends Exclude<InputOf<T>, undefined>>(
     underlying: T,
-    getDefault: () => D,
+    getDefault: () => F.Narrow<D>,
     options?: TOptions
   ): TDefault<T, D>;
   static create<T extends AnyTType, D extends Exclude<InputOf<T>, undefined>>(
     underlying: T,
-    defaultValue: D,
+    defaultValue: F.Narrow<D>,
     options?: TOptions
   ): TDefault<T, D>;
   static create<T extends AnyTType, D extends Exclude<InputOf<T>, undefined>>(
     underlying: T,
-    defaultValueOrGetter: D | (() => D),
+    defaultValueOrGetter: F.Narrow<D> | (() => F.Narrow<D>),
     options?: TOptions
   ): TDefault<T, D>;
   static create<T extends AnyTType, D extends Exclude<InputOf<T>, undefined>>(
     underlying: T,
-    defaultValueOrGetter: D | (() => D),
+    defaultValueOrGetter: F.Narrow<D> | (() => F.Narrow<D>),
     options?: TOptions
   ): TDefault<T, D> {
     return new TDefault({
@@ -3164,14 +3306,14 @@ export type AnyTDefault = TDefault<AnyTType, any>;
 /*                                                       TCatch                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TCatchDef<T extends AnyTType, C extends OutputOf<T>> = MakeTDef<{
+export type TCatchDef<T extends AnyTType, C extends Unbranded<OutputOf<T>>> = MakeTDef<{
   $Out: OutputOf<T> | C;
   $In: any;
   $TypeName: "TCatch";
   $Props: { readonly underlying: T; readonly getCatch: () => C };
 }>;
 
-export class TCatch<T extends AnyTType, C extends OutputOf<T>> extends TType<TCatchDef<T, C>> {
+export class TCatch<T extends AnyTType, C extends Unbranded<OutputOf<T>>> extends TType<TCatchDef<T, C>> {
   _parse(ctx: TParseContext<this>) {
     const underlyingResult = this.underlying._parse(ctx.child(this.underlying, ctx.data));
 
@@ -3200,31 +3342,33 @@ export class TCatch<T extends AnyTType, C extends OutputOf<T>> extends TType<TCa
     return this.underlying;
   }
 
-  static create<T extends AnyTType, C extends OutputOf<T>>(
+  static create<T extends AnyTType, C extends Unbranded<OutputOf<T>>>(
     underlying: T,
-    getCatch: () => C,
+    getCatch: () => F.Narrow<C>,
     options?: TOptions
   ): TCatch<T, C>;
-  static create<T extends AnyTType, C extends OutputOf<T>>(
+  static create<T extends AnyTType, C extends Unbranded<OutputOf<T>>>(
     underlying: T,
-    catchValue: C,
+    catchValue: F.Narrow<C>,
     options?: TOptions
   ): TCatch<T, C>;
-  static create<T extends AnyTType, C extends OutputOf<T>>(
+  static create<T extends AnyTType, C extends Unbranded<OutputOf<T>>>(
     underlying: T,
-    catchValueOrGetter: C | (() => C),
+    catchValueOrGetter: F.Narrow<C> | (() => F.Narrow<C>),
     options?: TOptions
   ): TCatch<T, C>;
-  static create<T extends AnyTType, C extends OutputOf<T>>(
+  static create<T extends AnyTType, C extends Unbranded<OutputOf<T>>>(
     underlying: T,
-    catchValueOrGetter: C | (() => C),
+    catchValueOrGetter: F.Narrow<C> | (() => F.Narrow<C>),
     options?: TOptions
   ): TCatch<T, C> {
     return new TCatch({
       typeName: TTypeName.Catch,
       props: {
         underlying,
-        getCatch: isKindOf(catchValueOrGetter, ValueKind.Function) ? catchValueOrGetter : () => catchValueOrGetter,
+        getCatch: (isKindOf(catchValueOrGetter, ValueKind.Function)
+          ? catchValueOrGetter
+          : () => catchValueOrGetter) as () => C,
       },
       options: processCreateOptions(options),
     });
@@ -3504,6 +3648,318 @@ export class TIntersection<T extends readonly AnyTType[]> extends TType<TInterse
 export type AnyTIntersection = TIntersection<AnyTType[]>;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                      TEffects                                                      */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export const TEffectKind = {
+  Preprocess: "preprocess",
+  Refinement: "refinement",
+  Transform: "transform",
+} as const;
+
+export type TEffectKind = typeof TEffectKind[keyof typeof TEffectKind];
+
+export interface TEffectBase<K extends TEffectKind> {
+  readonly kind: K;
+}
+
+export type TEffectIssueData = _<
+  TParseContextIssueData & { readonly message?: string; readonly params?: Readonly<Record<string, unknown>> }
+>;
+
+export interface TEffectCtx {
+  readonly path: TParseContextPath;
+  addIssue(issue: TEffectIssueData): this;
+}
+
+export interface TPreprocessEffect<T extends AnyTType> extends TEffectBase<"preprocess"> {
+  preprocess(data: unknown): InputOf<T>;
+}
+
+export interface TRefinementEffect<T extends AnyTType> extends TEffectBase<"refinement"> {
+  refine(data: OutputOf<T>, ctx: TEffectCtx): unknown;
+}
+
+export interface TTransformEffect<T extends AnyTType, U> extends TEffectBase<"transform"> {
+  transform(data: OutputOf<T>, ctx: TEffectCtx): U;
+}
+
+export type TEffect<T extends AnyTType = AnyTType, U = unknown> =
+  | TPreprocessEffect<T>
+  | TRefinementEffect<T>
+  | TTransformEffect<T, U>;
+
+export type TEffectsDef<T extends AnyTType, Out = OutputOf<T>, In = InputOf<T>> = MakeTDef<{
+  $Out: Out;
+  $In: In;
+  $TypeName: "TEffects";
+  $Props: { readonly underlying: T; readonly effect: TEffect<T> };
+}>;
+
+export class TEffects<T extends AnyTType, Out = OutputOf<T>, In = InputOf<T>> extends TType<TEffectsDef<T, Out, In>> {
+  _parse(ctx: TParseContext<this>): TParseResultOf<this> {
+    const { underlying, effect } = this.props;
+
+    if (effect.kind === TEffectKind.Preprocess) {
+      const processed = effect.preprocess(ctx.data);
+
+      if (ctx.common.async) {
+        return Promise.resolve(processed).then((awaited) => underlying._parseAsync(ctx.child(underlying, awaited)));
+      } else {
+        return underlying._parseSync(ctx.child(underlying, processed));
+      }
+    }
+
+    const effectCtx: TEffectCtx = {
+      get path() {
+        return ctx.path;
+      },
+      addIssue(issue) {
+        ctx.addIssue(issue, issue.message);
+        return this;
+      },
+    };
+
+    effectCtx.addIssue = effectCtx.addIssue.bind(effectCtx);
+
+    if (effect.kind === "refinement") {
+      if (ctx.common.async) {
+        return underlying._parseAsync(ctx.child(underlying, ctx.data)).then(async (underlyingRes) => {
+          if (!underlyingRes.ok) {
+            return underlyingRes;
+          }
+
+          const result = await effect.refine(underlyingRes.data, effectCtx);
+
+          if (!!result) {
+            return ctx.return(underlyingRes.data);
+          }
+
+          return ctx.return();
+        });
+      } else {
+        const underlyingRes = underlying._parseSync(ctx.child(underlying, ctx.data));
+        if (!underlyingRes.ok) {
+          return underlyingRes;
+        }
+
+        const result = effect.refine(underlyingRes.data, effectCtx);
+
+        if (isKindOf(result, ValueKind.Promise)) {
+          throw new Error(
+            "Async refinement encountered during synchronous parse operation. Use `.parseAsync()` instead."
+          );
+        }
+
+        if (!!result) {
+          return ctx.return(underlyingRes.data);
+        }
+
+        return ctx.return();
+      }
+    }
+
+    if (effect.kind === "transform") {
+      if (ctx.common.async) {
+        return underlying._parseAsync(ctx.child(underlying, ctx.data)).then((baseRes) => {
+          if (!baseRes.ok) {
+            return baseRes;
+          }
+
+          return Promise.resolve(effect.transform(baseRes.data, effectCtx)).then((finalRes) =>
+            ctx.return(finalRes as Out)
+          );
+        });
+      } else {
+        const baseRes = underlying._parseSync(ctx.child(underlying, ctx.data));
+        if (!baseRes.ok) {
+          return baseRes;
+        }
+
+        const finalRes = effect.transform(baseRes.data, effectCtx);
+
+        if (isKindOf(finalRes, ValueKind.Promise)) {
+          throw new Error(
+            "Async transform encountered during synchronous parse operation. Use `.parseAsync()` instead."
+          );
+        }
+
+        return ctx.return(finalRes as Out);
+      }
+    }
+
+    assertNever(effect);
+  }
+
+  get underlying(): T {
+    return this.props.underlying;
+  }
+
+  get effect(): TEffect<T> {
+    return this.props.effect;
+  }
+}
+
+/* --------------------------------------------------- TPreprocess -------------------------------------------------- */
+
+export class TPreprocess<T extends AnyTType, U extends InputOf<T>> extends TEffects<T, OutputOf<T>, U> {
+  static create<T extends AnyTType, U extends InputOf<T>>(
+    type: T,
+    preprocess: (data: unknown) => U,
+    options?: TOptions
+  ): TPreprocess<T, U> {
+    return new TPreprocess({
+      typeName: TTypeName.Effects,
+      props: { underlying: type, effect: { kind: TEffectKind.Preprocess, preprocess } },
+      options: processCreateOptions(options),
+    });
+  }
+}
+
+export type AnyTPreprocess = TPreprocess<AnyTType, unknown>;
+
+/* --------------------------------------------------- TRefinement -------------------------------------------------- */
+
+export type TRefinementCustomIssueParams = {
+  readonly fatal?: boolean;
+  readonly message?: string;
+  readonly params?: Record<string, unknown>;
+  readonly path?: TParseContextPath;
+};
+
+export type TRefinementData<T extends AnyTType> = _<
+  | string
+  | TEffectIssueData
+  | TRefinementCustomIssueParams
+  | ((data: OutputOf<T>, ctx: TEffectCtx) => string | TEffectIssueData | TRefinementCustomIssueParams)
+  | undefined
+>;
+
+function getRefinementIssueProps<T extends AnyTType>(
+  data: OutputOf<T>,
+  ctx: TEffectCtx,
+  refinementData: TRefinementData<T>
+): TParseContextIssueData & { readonly message: string | undefined } {
+  const refinementData_: TEffectIssueData | TRefinementCustomIssueParams = (() => {
+    if (!refinementData || isKindOf(refinementData, ValueKind.String)) {
+      return { message: refinementData };
+    } else if (isKindOf(refinementData, ValueKind.Function)) {
+      const result = refinementData(data, ctx);
+      if (isKindOf(result, ValueKind.String)) {
+        return { message: result };
+      } else {
+        return result;
+      }
+    } else {
+      return refinementData;
+    }
+  })();
+
+  if (!("kind" in refinementData_)) {
+    return {
+      kind: TIssueKind.Custom.Invalid,
+      message: refinementData_.message,
+      ...(refinementData_.path && { path: refinementData_.path }),
+      ...(refinementData_.fatal && { fatal: refinementData_.fatal }),
+      ...(refinementData_.params && { payload: { params: refinementData_.params } }),
+    };
+  }
+
+  return {
+    ...(refinementData_ as TEffectIssueData),
+    message: refinementData_.message,
+  };
+}
+
+export class TRefinement<T extends AnyTType, U extends OutputOf<T>> extends TEffects<T, U, InputOf<T>> {
+  static create<T extends AnyTType, U extends OutputOf<T>>(
+    type: T,
+    refinement: (data: OutputOf<T>, ctx: TEffectCtx) => unknown,
+    refinementData?: TRefinementData<T>,
+    options?: TOptions
+  ): TRefinement<T, U> {
+    return new TRefinement({
+      typeName: TTypeName.Effects,
+      props: {
+        underlying: type,
+        effect: {
+          kind: TEffectKind.Refinement,
+          refine: (data, ctx) => {
+            const result = refinement(data, ctx);
+            if (isKindOf(result, ValueKind.Promise)) {
+              return result.then((res) => {
+                if (!res) {
+                  ctx.addIssue(getRefinementIssueProps(data, ctx, refinementData));
+                  return false;
+                }
+                return true;
+              });
+            } else {
+              if (!result) {
+                ctx.addIssue(getRefinementIssueProps(data, ctx, refinementData));
+                return false;
+              }
+              return true;
+            }
+          },
+        },
+      },
+      options: processCreateOptions(options),
+    });
+  }
+}
+
+export type AnyTRefinement = TRefinement<AnyTType, any>;
+
+/* --------------------------------------------------- TTransform --------------------------------------------------- */
+
+export class TTransform<T extends AnyTType, U> extends TEffects<T, U, InputOf<T>> {
+  static create<T extends AnyTType, U>(
+    type: T,
+    transform: (data: OutputOf<T>, ctx: TEffectCtx) => U,
+    options?: TOptions
+  ): TTransform<T, U> {
+    return new TTransform({
+      typeName: TTypeName.Effects,
+      props: { underlying: type, effect: { kind: TEffectKind.Transform, transform } },
+      options: processCreateOptions(options),
+    });
+  }
+}
+
+export type AnyTTransform = TTransform<AnyTType, any>;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                       TCustom                                                      */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TCustomDef<Out, In = Out> = MakeTDef<{
+  $Out: Out;
+  $In: In;
+  $TypeName: "TCustom";
+  $Props: { readonly parser: (ctx: TParseContext<TCustom<Out, In>>) => TParseResult<Out, In> };
+}>;
+
+export class TCustom<Out, In = Out> extends TType<TCustomDef<Out, In>> {
+  _parse(ctx: TParseContext<this>): TParseResultOf<this> {
+    return this.props.parser(ctx);
+  }
+
+  static create<Out, In = Out>(
+    parser: (ctx: TParseContext<TCustom<Out, In>>) => TParseResult<Out, In>,
+    options?: TOptions
+  ): TCustom<Out, In> {
+    return new TCustom<Out, In>({
+      typeName: TTypeName.Custom,
+      props: { parser },
+      options: processCreateOptions(options),
+    });
+  }
+}
+
+export type AnyTCustom = TCustom<any, any>;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                         TIf                                                        */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -3599,6 +4055,8 @@ export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTTy
   }
 }
 
+export type AnyTIf = TIf<AnyTType, AnyTType | null, AnyTType | null>;
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TCoerce                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -3651,16 +4109,19 @@ export const anyType = TAny.create.bind(TAny);
 export const arrayType = TArray.create.bind(TArray);
 export const bigintType = TBigInt.create.bind(TBigInt);
 export const booleanType = TBoolean.create.bind(TBoolean);
+export const brandType = TBrand.create.bind(TBrand);
 export const bufferType = TBuffer.create.bind(TBuffer);
 export const castType = TCast;
 export const catchType = TCatch.create.bind(TCatch);
 export const coerceType = TCoerce;
+export const customType = TCustom.create.bind(TCustom);
 export const dateType = TDate.create.bind(TDate);
 export const defaultType = TDefault.create.bind(TDefault);
 export const definedType = TDefined.create.bind(TDefined);
 export const enumType = TEnum.create.bind(TEnum);
 export const falseType = TFalse.create.bind(TFalse);
 export const ifType = TIf.create.bind(TIf);
+export const instanceofType = TInstanceOf.create.bind(TInstanceOf);
 export const intersectionType = TIntersection.create.bind(TIntersection);
 export const lazyType = TLazy.create.bind(TLazy);
 export const literalType = TLiteral.create.bind(TLiteral);
@@ -3675,11 +4136,14 @@ export const numberType = TNumber.create.bind(TNumber);
 export const objectType = TObject.create.bind(TObject);
 export const optionalType = TOptional.create.bind(TOptional);
 export const pipelineType = TPipeline.create.bind(TPipeline);
+export const preprocessType = TPreprocess.create.bind(TPreprocess);
 export const promiseType = TPromise.create.bind(TPromise);
 export const recordType = TRecord.create.bind(TRecord);
+export const refinementType = TRefinement.create.bind(TRefinement);
 export const setType = TSet.create.bind(TSet);
 export const stringType = TString.create.bind(TString);
 export const symbolType = TSymbol.create.bind(TSymbol);
+export const transformType = TTransform.create.bind(TTransform);
 export const trueType = TTrue.create.bind(TTrue);
 export const tupleType = TTuple.create.bind(TTuple);
 export const undefinedType = TUndefined.create.bind(TUndefined);
@@ -3698,11 +4162,14 @@ export {
   arrayType as array,
   bigintType as bigint,
   booleanType as boolean,
+  brandType as brand,
+  brandType as branded,
   bufferType as binary,
   bufferType as buffer,
   castType as cast,
   catchType as catch,
   coerceType as coerce,
+  customType as custom,
   dateType as date,
   defaultType as def,
   definedType as defined,
@@ -3711,6 +4178,7 @@ export {
   falseType as false,
   ifType as conditional,
   ifType as if,
+  instanceofType as instanceof,
   intersectionType as and,
   intersectionType as intersection,
   lazyType as lazy,
@@ -3728,11 +4196,15 @@ export {
   overrideMarker as override,
   pipelineType as pipe,
   pipelineType as pipeline,
+  preprocessType as preprocess,
   promiseType as promise,
   recordType as record,
+  refinementType as refine,
+  refinementType as refinement,
   setType as set,
   stringType as string,
   symbolType as symbol,
+  transformType as transform,
   trueType as true,
   tupleType as tuple,
   undefinedType as undefined,
@@ -3747,6 +4219,11 @@ export type output<T extends AnyTType> = _<T["$O"]>;
 export type input<T extends AnyTType> = _<T["$I"]>;
 export type infer<T extends AnyTType> = output<T>;
 
+export type inferFormattedError<T extends AnyTType> = __<TFormattedErrorOf<T>>;
+export type inferFlattenedError<T extends AnyTType> = __<TFlattenedErrorOf<T>>;
+
+export type inferPaths<T extends AnyTType> = T extends unknown ? TPathsOf<T> : never;
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export type UnwrapDeep<T extends AnyTType, TN extends TTypeName> = T extends {
@@ -3754,6 +4231,16 @@ export type UnwrapDeep<T extends AnyTType, TN extends TTypeName> = T extends {
   unwrap(): infer U extends AnyTType;
 }
   ? UnwrapDeep<U, TN>
+  : T;
+
+export type UnwrapUntil<T extends AnyTType, TN extends TTypeName> = T extends {
+  readonly typeName: TN;
+}
+  ? T
+  : T extends { unwrap(): infer U }
+  ? U extends AnyTType
+    ? UnwrapUntil<U, TN>
+    : T
   : T;
 
 function handleUnwrapDeep<T extends AnyTType, TN extends [TTypeName, ...TTypeName[]]>(t: T, tns: TN) {
@@ -3765,3 +4252,65 @@ function handleUnwrapDeep<T extends AnyTType, TN extends [TTypeName, ...TTypeNam
 
   return unwrapped as UnwrapDeep<T, TN[number]>;
 }
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+type TArrayElementPaths<T extends AnyTType> =
+  | `[${number}]`
+  | (T extends AnyTObject
+      ? `[${number}].${TObjectShapePaths<T["shape"]>}`
+      : T extends AnyTTuple
+      ? `[${number}]${TTuplePaths<T>}`
+      : T extends AnyTArray
+      ? `[${number}]${TArrayElementPaths<T["element"]>}`
+      : never);
+
+export type TArrayPaths<T extends AnyTArray> = TArrayElementPaths<T["element"]>;
+
+type TTuplePaths<T extends AnyTTuple, Acc extends readonly string[] = []> = T["items"] extends infer U
+  ? U extends readonly []
+    ? Acc[number]
+    : U extends readonly [infer H extends AnyTType, ...infer R extends readonly AnyTType[]]
+    ?
+        | (H extends AnyTObject
+            ? `[${Acc["length"]}].${TObjectShapePaths<H["shape"]>}`
+            : H extends AnyTTuple
+            ? `[${Acc["length"]}]${TTuplePaths<H>}`
+            : H extends AnyTArray
+            ? `[${Acc["length"]}]${TArrayElementPaths<H["element"]>}`
+            : never)
+        | TTuplePaths<TTuple<[...R], T["restType"]>, [...Acc, `[${Acc["length"]}]`]>
+    : never
+  : never;
+
+type TObjectShapePaths<T extends TObjectShape> = {
+  [K in keyof T]:
+    | K
+    | (K extends string
+        ? T[K] extends AnyTObject
+          ? `${K}.${TObjectShapePaths<T[K]["shape"]>}`
+          : T[K] extends AnyTTuple
+          ? `${K}${TTuplePaths<T[K]>}`
+          : T[K] extends AnyTArray
+          ? `${K}${TArrayElementPaths<T[K]["element"]>}`
+          : never
+        : never);
+}[keyof T] extends infer P extends string
+  ? P
+  : never;
+
+export type TObjectPaths<T extends AnyTObject> = TObjectShapePaths<T["shape"]>;
+
+type _TPathsOf<T extends AnyTType> = T extends AnyTUnion | AnyTIntersection
+  ? T["types"][number] extends infer U extends AnyTType
+    ? TPathsOf<U>
+    : never
+  : T extends AnyTTuple
+  ? TTuplePaths<T>
+  : T extends AnyTObject
+  ? TObjectPaths<T>
+  : T extends AnyTArray
+  ? TArrayElementPaths<T["element"]>
+  : never;
+
+export type TPathsOf<T extends AnyTType> = _TPathsOf<UnwrapUntil<T, "TObject" | "TTuple" | "TArray">>;

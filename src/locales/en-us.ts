@@ -199,6 +199,10 @@ const enUS: TLocale = {
           true
         )}`;
 
+      // Custom
+      case TIssueKind.Custom.Invalid:
+        return `Custom validation failed${issue.payload?.params ? `: ${printValue(issue.payload.params)}` : ""}`;
+
       default:
         assertNever(issue);
     }

@@ -2,7 +2,8 @@ import util from "util";
 import { TGlobal } from "./global";
 import type { TIssue, TIssueKind } from "./issues";
 import type { TParseContext } from "./parse";
-import { ValueKind, isKindOf, type StripKey } from "./utils";
+import type { AnyTType, InputOf } from "./types";
+import { ValueKind, isKindOf, type AllKeys, type StripKey } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TError                                                       */
@@ -54,11 +55,22 @@ export function defaultErrorFormatter(issues: readonly TIssue[]): string {
   });
 }
 
-export class TError<$I = unknown> extends Error {
-  override get name() {
-    return "TError";
-  }
+export type TFormattedError<T, U = string> = {
+  readonly _errors: readonly U[];
+} & (NonNullable<T> extends readonly [unknown, ...unknown[]]
+  ? { readonly [K in keyof NonNullable<T>]?: TFormattedError<NonNullable<T>[K], U> }
+  : NonNullable<T> extends readonly unknown[]
+  ? { readonly [x: number]: TFormattedError<NonNullable<T>[number], U> }
+  : NonNullable<T> extends object
+  ? { readonly [K in keyof NonNullable<T>]?: TFormattedError<NonNullable<T>[K], U> }
+  : unknown);
 
+export type TFlattenedError<T, U = string> = {
+  readonly formErrors: readonly U[];
+  readonly fieldErrors: { readonly [K in AllKeys<T>]?: readonly U[] };
+};
+
+export class TError<$I = unknown> extends Error {
   private readonly _ctx: TParseContext;
 
   constructor(ctx: TParseContext) {
@@ -81,11 +93,76 @@ export class TError<$I = unknown> extends Error {
     );
   }
 
-  get issues(): readonly TIssue[] {
-    return this._ctx.allIssues;
+  override get name() {
+    return "TError";
   }
 
   override get message() {
     return TGlobal.getErrorFormatter()(this.issues);
   }
+
+  override toString() {
+    return this.message;
+  }
+
+  get issues(): readonly TIssue[] {
+    return this._ctx.allIssues;
+  }
+
+  format(): TFormattedError<$I>;
+  format<U>(mapper: (issue: TIssue) => U): TFormattedError<$I, U>;
+  format<U>(_mapper?: (issue: TIssue) => U): TFormattedError<$I, U | string> {
+    const mapper = _mapper ?? ((issue: TIssue) => issue.message);
+    const fieldErrors = { _errors: [] } as { _errors: (U | string)[]; [x: string | number]: unknown };
+
+    const processError = (error: TError) => {
+      for (const iss of error.issues) {
+        if (iss.payload && "errors" in iss.payload) {
+          iss.payload.errors.map(processError);
+        } else if (iss.payload && "error" in iss.payload) {
+          processError(iss.payload.error);
+        } else if (iss.path.length === 0) {
+          fieldErrors._errors.push(mapper(iss));
+        } else {
+          let curr = fieldErrors;
+          let i = 0;
+          while (i < iss.path.length) {
+            const el = iss.path[i]!;
+            curr[el] = curr[el] ?? { _errors: [] };
+            if (i === iss.path.length - 1) {
+              (curr[el] as { _errors: (U | string)[] })._errors.push(mapper(iss));
+            }
+            curr = curr[el] as typeof fieldErrors;
+            i++;
+          }
+        }
+      }
+    };
+
+    processError(this);
+    return fieldErrors as TFormattedError<$I, U | string>;
+  }
+
+  flatten(): TFlattenedError<$I>;
+  flatten<U>(mapper: (issue: TIssue) => U): TFlattenedError<$I, U>;
+  flatten<U>(_mapper?: (issue: TIssue) => U): TFlattenedError<$I, U | string> {
+    const mapper = _mapper ?? ((issue: TIssue) => issue.message);
+    const fieldErrors: Record<string | number, (U | string)[]> = {};
+    const formErrors: (U | string)[] = [];
+
+    for (const iss of this.issues) {
+      if (iss.path.length > 0) {
+        const h = iss.path[0]!;
+        fieldErrors[h] = fieldErrors[h] ?? [];
+        fieldErrors[h]?.push(mapper(iss));
+      } else {
+        formErrors.push(mapper(iss));
+      }
+    }
+
+    return { formErrors, fieldErrors };
+  }
 }
+
+export type TFormattedErrorOf<T extends AnyTType, U = string> = TFormattedError<InputOf<T>, U>;
+export type TFlattenedErrorOf<T extends AnyTType, U = string> = TFlattenedError<InputOf<T>, U>;

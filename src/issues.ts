@@ -2,7 +2,7 @@ import type * as tf from "type-fest";
 import type { TCheck, TCheckBase } from "./checks";
 import type { TError } from "./error";
 import type { TEnumValue, TLiteralValue } from "./types";
-import type { GetNestedValues } from "./utils";
+import type { GetNestedValues, ReadonlyDeep } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TIssues                                                      */
@@ -84,11 +84,19 @@ export const TIssueKind = {
   Object: {
     UnknownKey: "object.unknown_key",
   },
+  Function: {
+    InvalidThisType: "function.invalid_this_type",
+    InvalidArguments: "function.invalid_arguments",
+    InvalidReturnType: "function.invalid_return_type",
+  },
   Union: {
     Invalid: "union.invalid",
   },
   Intersection: {
     Invalid: "intersection.invalid",
+  },
+  Custom: {
+    Invalid: "custom.invalid",
   },
 } as const;
 
@@ -105,7 +113,7 @@ export type TIssueBase<K extends TIssueKind> = {
 };
 
 export type MakeTIssue<K extends TIssueKind, P extends Record<string, unknown> | null = null> = tf.Simplify<
-  tf.ReadonlyDeep<
+  ReadonlyDeep<
     TIssueBase<K> &
       (P extends null
         ? { payload?: never }
@@ -221,12 +229,22 @@ export namespace TIssue {
     export type UnknownKey = MakeTIssue<"object.unknown_key", { key: PropertyKey }>;
   }
 
+  export namespace Function {
+    export type InvalidThisType = MakeTIssue<"function.invalid_this_type", { error: TError }>;
+    export type InvalidArguments = MakeTIssue<"function.invalid_arguments", { error: TError }>;
+    export type InvalidReturnType = MakeTIssue<"function.invalid_return_type", { error: TError }>;
+  }
+
   export namespace Union {
     export type Invalid = MakeTIssue<"union.invalid", { errors: TError[] }>;
   }
 
   export namespace Intersection {
     export type Invalid = MakeTIssue<"intersection.invalid", { errors: TError[] }>;
+  }
+
+  export namespace Custom {
+    export type Invalid = MakeTIssue<"custom.invalid", { params?: Record<string, unknown> }>;
   }
 }
 
@@ -286,9 +304,15 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.Map.InvalidKey
   // Object
   | TIssue.Object.UnknownKey
+  // Function
+  | TIssue.Function.InvalidThisType
+  | TIssue.Function.InvalidArguments
+  | TIssue.Function.InvalidReturnType
   // Union
   | TIssue.Union.Invalid
   // Intersection
-  | TIssue.Intersection.Invalid,
+  | TIssue.Intersection.Invalid
+  // Custom
+  | TIssue.Custom.Invalid,
   { readonly kind: K }
 >;

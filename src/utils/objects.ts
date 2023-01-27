@@ -1,10 +1,10 @@
 import type * as tf from "type-fest";
 import { includes } from "./arrays";
 import { ValueKind, isKindOf } from "./kind-of";
-import type { Branded, Merge, Unbranded } from "./types";
+import type { BRANDED, Merge, Unbranded } from "./types";
 
 export function enbrand<T, U extends string>(x: T, _: U) {
-  return x as Branded<T, U>;
+  return x as BRANDED<T, U>;
 }
 
 export function debrand<T>(x: T) {

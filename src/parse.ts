@@ -4,7 +4,7 @@ import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
 import { processCreateOptions, type AnyTOptions, type ProcessedTOptions, type ProcessedTParseOptions } from "./options";
 import type { AnyTType } from "./types";
-import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf } from "./utils";
+import { StripKey, ValueKind, conditionalOmitKindDeep, isKindOf, kindOf } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TParse                                                       */
@@ -43,9 +43,10 @@ export type TParseContextStatus = typeof TParseContextStatus[keyof typeof TParse
 
 export type TParseContextPath = ReadonlyArray<string | number | symbol>;
 
-export type TParseContextIssueInput<K extends TIssueKind> = K extends unknown
-  ? tf.Except<TIssue<K>, keyof tf.Except<TIssueBase<K>, "kind" | "payload">>
-  : never;
+export type TParseContextIssueData = StripKey<TIssue, keyof tf.Except<TIssueBase<TIssueKind>, "kind" | "payload">> & {
+  readonly fatal?: boolean;
+  readonly path?: TParseContextPath;
+};
 
 export type TParseContextCommon<T extends AnyTType> = ProcessedTParseOptions<T["options"]> & {
   readonly async: boolean;
@@ -185,11 +186,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     });
   }
 
-  addIssue<K extends TIssueKind>(
-    issue: TParseContextIssueInput<K>,
-    message: string | undefined,
-    options?: { pushPath?: TParseContextPath }
-  ): this {
+  addIssue(issue: TParseContextIssueData, message: string | undefined): this {
     if (!this.common.warnOnly) {
       if (this.valid) {
         this.invalidate();
@@ -201,9 +198,13 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     const locale = TGlobal.getLocale();
     const globalErrorMap = TGlobal.getErrorMap();
 
-    const sanitizedIssue = conditionalOmitKindDeep(issue, ValueKind.Function);
+    const sanitizedIssue = Object.fromEntries(
+      Object.entries(conditionalOmitKindDeep(issue, ValueKind.Function)).filter(
+        ([_, v]) => typeof v !== "object" || Object.keys(v).length > 0
+      )
+    ) as TParseContextIssueData;
 
-    const issuePath = options?.pushPath ? [...this.path, ...coercePath(options.pushPath)] : this.path;
+    const issuePath = issue.path ? [...this.path, ...coercePath(issue.path)] : this.path;
 
     const partialIssue = {
       ...sanitizedIssue,

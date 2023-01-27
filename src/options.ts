@@ -1,6 +1,6 @@
 import type { TErrorMap } from "./error";
 import type { TIssueKind } from "./issues";
-import { BRAND, enbrand, pick, type Branded, type __ } from "./utils";
+import { BRAND, enbrand, pick, type BRANDED, type __ } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TOptions                                                      */
@@ -33,7 +33,7 @@ export type TParseOptions = {
 };
 
 export type ProcessedTOptions<T extends TOptions> = T extends infer U extends Record<string, unknown>
-  ? Branded<
+  ? BRANDED<
       { [K in keyof U]-?: (K extends "label" | "schemaErrorMap" ? undefined : never) | U[K] },
       "__ProcessedTOptions"
     >

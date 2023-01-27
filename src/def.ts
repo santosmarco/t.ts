@@ -3,7 +3,7 @@ import type { TCheckBase } from "./checks";
 import type { AnyTManifest, TManifest } from "./manifest";
 import type { TOptions, ProcessedTOptions } from "./options";
 import type { TTypeName } from "./types";
-import type { Branded, HasKey } from "./utils";
+import type { BRANDED, HasKey } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                        TDef                                                        */
@@ -23,7 +23,7 @@ export interface TDef {
 export type MakeTDef<
   T extends tf.Exact<tf.SetOptional<TDef, "$In" | "$Props" | "$Options" | "$Manifest" | "$Checks">, T>
 > = [{ 0: T["$Out"]; 1: T["$In"] }[HasKey<T, "$In">]] extends [infer In]
-  ? Branded<
+  ? BRANDED<
       {
         $Out: T["$Out"];
         $In: In;
@@ -37,7 +37,7 @@ export type MakeTDef<
     >
   : never;
 
-export type AnyBrandedTDef = Branded<TDef, "TDef">;
+export type AnyBrandedTDef = BRANDED<TDef, "TDef">;
 
 export type TCtorDef<T extends AnyBrandedTDef> = {
   readonly typeName: T["$TypeName"];
@@ -46,7 +46,7 @@ export type TCtorDef<T extends AnyBrandedTDef> = {
 } & (T["$Props"] extends null ? { readonly props?: null } : { readonly props: T["$Props"] }) &
   (T["$Checks"] extends null ? { readonly checks?: null } : { readonly checks: T["$Checks"] });
 
-export type TRuntimeDef<T extends AnyBrandedTDef> = Branded<
+export type TRuntimeDef<T extends AnyBrandedTDef> = BRANDED<
   {
     readonly typeName: T["$TypeName"];
     readonly props: T["$Props"];
