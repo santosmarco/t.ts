@@ -412,8 +412,8 @@ export abstract class TType<D extends AnyBrandedTDef> {
     });
   }
 
-  protected _construct(def?: tf.Except<TRuntimeDef<D>, "typeName">): this {
-    return Reflect.construct<[def: TRuntimeDef<D>], this>(this.constructor as new (def: TRuntimeDef<D>) => this, [
+  protected _construct<T = this>(def?: tf.Except<TRuntimeDef<D>, "typeName">): T {
+    return Reflect.construct<[def: TRuntimeDef<D>], T>(this.constructor as new (def: TRuntimeDef<D>) => T, [
       { ...this._def, ...def },
     ]);
   }
@@ -1773,7 +1773,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
   }
 
   map<U extends AnyTType>(fn: (element: T) => U): TArray<U, Card> {
-    return new TArray<U, Card>({ ...this._def, props: { ...this.props, element: fn(this.element) } });
+    return this._construct({ ...this._def, props: { ...this.props, element: fn(this.element) } });
   }
 
   sparse(enabled?: true): TArray<TOptional<T>, Card>;
@@ -1801,8 +1801,8 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
 
   static readonly create = Object.freeze(
     Object.assign(TArray._create, {
-      of<T extends AnyTType>(element: T): TArray<T> {
-        return TArray._create(element);
+      of<T extends AnyTType>(element: T, options?: TOptions): TArray<T> {
+        return TArray._create(element, options);
       },
     })
   );
@@ -2127,10 +2127,7 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
   }
 
   map<U extends AnyTType>(fn: (element: T) => U): TSet<U> {
-    return new TSet<U>({
-      ...this._def,
-      props: { ...this.props, element: fn(this.element) },
-    });
+    return this._construct({ ...this._def, props: { ...this.props, element: fn(this.element) } });
   }
 
   sparse(enabled?: true): TSet<TOptional<T>>;
@@ -2149,8 +2146,8 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
 
   static readonly create = Object.freeze(
     Object.assign(TSet._create, {
-      of<T extends AnyTType>(element: T): TSet<T> {
-        return TSet._create(element);
+      of<T extends AnyTType>(element: T, options?: TOptions): TSet<T> {
+        return TSet._create(element, options);
       },
     })
   );

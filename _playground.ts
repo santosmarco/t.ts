@@ -90,3 +90,7 @@ console.log(tt, tt.safeParse(["1", 2, Buffer.from("a")]));
 
 const a = t.if(t.bigint(), { then: t.bigint(), else: t.number() });
 type a = t.infer<typeof a>;
+
+class A extends t.TBuffer {}
+
+console.log(A.create());
