@@ -1,14 +1,10 @@
 import type * as tf from "type-fest";
-import { TError, resolveErrorMaps } from "./error";
+import { TError, TErrorMap, resolveErrorMaps } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
-import { processCreateOptions, type AnyTOptions, type ProcessedTOptions, type ProcessedTParseOptions } from "./options";
+import { AnyTOptions, TColor } from "./options";
 import type { AnyTType } from "./types";
-import { StripKey, ValueKind, conditionalOmitKindDeep, isKindOf, kindOf } from "./utils";
-
-/* ------------------------------------------------------------------------------------------------------------------ */
-/*                                                       TParse                                                       */
-/* ------------------------------------------------------------------------------------------------------------------ */
+import { DeepPartial, StripKey, ValueKind, conditionalOmitKindDeep, initParseDebug, isKindOf, kindOf } from "./utils";
 
 export type TParseResultSuccess<$O> = {
   readonly ok: true;
@@ -30,6 +26,7 @@ export type TParseResult<$O, $I = $O> = TParseResultSync<$O, $I> | TParseResultA
 
 export type TParseResultSuccessOf<T extends AnyTType> = TParseResultSuccess<T["$O"]>;
 export type TParseResultFailureOf<T extends AnyTType> = TParseResultFailure<T["$I"]>;
+
 export type TParseResultSyncOf<T extends AnyTType> = TParseResultSync<T["$O"], T["$I"]>;
 export type TParseResultAsyncOf<T extends AnyTType> = TParseResultAsync<T["$O"], T["$I"]>;
 export type TParseResultOf<T extends AnyTType> = TParseResultSyncOf<T> | TParseResultAsyncOf<T>;
@@ -43,13 +40,26 @@ export type TParseContextStatus = typeof TParseContextStatus[keyof typeof TParse
 
 export type TParseContextPath = ReadonlyArray<string | number | symbol>;
 
-export type TParseContextIssueData = StripKey<TIssue, keyof tf.Except<TIssueBase<TIssueKind>, "kind" | "payload">> & {
-  readonly fatal?: boolean;
-  readonly path?: TParseContextPath;
+export type TParseOnIssueHookConfig = {
+  readonly skip?: boolean;
 };
 
-export type TParseContextCommon<T extends AnyTType> = ProcessedTParseOptions<T["options"]> & {
+export type TParseOptions = {
+  readonly abortEarly: boolean;
+  readonly contextualErrorMap: TErrorMap | undefined;
+  readonly debug: boolean;
+  readonly label: string | undefined;
+  readonly warnOnly: boolean;
+  readonly hooks: {
+    readonly onIssue: ((issue: TIssue) => void | TParseOnIssueHookConfig) | undefined;
+  };
+};
+
+export type TParseContextCommon<T extends AnyTOptions> = TParseOptions & {
   readonly async: boolean;
+  readonly color: TColor;
+  readonly schemaErrorMap: TErrorMap | undefined;
+  readonly messages: Exclude<T["messages"], undefined>;
 };
 
 export type TParseContextDef<T extends AnyTType> = {
@@ -57,36 +67,45 @@ export type TParseContextDef<T extends AnyTType> = {
   readonly data: unknown;
   readonly path: TParseContextPath;
   readonly parent: TParseContext | null;
-  readonly common: TParseContextCommon<T>;
+  readonly common: TParseContextCommon<T["options"]>;
+};
+
+export type TParseContextIssueData = StripKey<TIssue, keyof tf.Except<TIssueBase<TIssueKind>, "kind" | "payload">> & {
+  readonly fatal?: boolean;
+  readonly path?: TParseContextPath;
 };
 
 export class TParseContext<T extends AnyTType = AnyTType> {
   private _status: TParseContextStatus;
   private _data: unknown;
-  private readonly _path: ReadonlyArray<string | number>;
 
   private readonly _t: T;
+  private readonly _path: ReadonlyArray<string | number>;
   private readonly _parent: TParseContext | null;
-  private readonly _common: TParseContextCommon<T>;
+  private readonly _common: TParseContextCommon<T["options"]>;
 
   private readonly _children: TParseContext[];
   private readonly _issues: TIssue[];
   private readonly _warnings: TIssue[];
+
+  private readonly _debug = initParseDebug(this);
 
   private constructor(def: TParseContextDef<T>) {
     const { t, data, path, parent, common } = def;
 
     this._status = TParseContextStatus.Valid;
     this._data = data;
-    this._path = coercePath(path);
 
     this._t = t;
+    this._path = coercePath(path);
     this._parent = parent;
     this._common = common;
 
     this._children = [];
     this._issues = [];
     this._warnings = [];
+
+    this._debug.log("Context initialized", { _data: data });
   }
 
   get status() {
@@ -105,6 +124,11 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     return this._t;
   }
 
+  get label() {
+    const locale = TGlobal.getLocale();
+    return this.common.label ?? generateIssueLabel(this.path, locale.defaultLabel);
+  }
+
   get path() {
     return this._path;
   }
@@ -117,7 +141,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     return this.parent?.root ?? this;
   }
 
-  get common(): TParseContextCommon<T> {
+  get common(): TParseContextCommon<T["options"]> {
     return this._common;
   }
 
@@ -165,14 +189,20 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   }
 
   child<U extends AnyTType>(t: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
+    const childPath = [...this.path, ...path];
+
+    this._debug.log(`Creating child on context: ${this._debug.printPath(childPath)}`);
+
     const child = new TParseContext({
       t,
       data,
       path: [...this.path, ...path],
       parent: this,
-      common: processTParseContextCommon(t, this.common),
+      common: deriveCtxCommon(t, this),
     });
+
     this._children.push(child);
+
     return child;
   }
 
@@ -182,19 +212,11 @@ export class TParseContext<T extends AnyTType = AnyTType> {
       data,
       path: [...this.path, ...path],
       parent: null,
-      common: processTParseContextCommon(t, this.common),
+      common: deriveCtxCommon(t, this),
     });
   }
 
   addIssue(issue: TParseContextIssueData, message: string | undefined): this {
-    if (!this.common.warnOnly) {
-      if (this.valid) {
-        this.invalidate();
-      } else if (this.common.abortEarly) {
-        return this;
-      }
-    }
-
     const locale = TGlobal.getLocale();
     const globalErrorMap = TGlobal.getErrorMap();
 
@@ -209,8 +231,8 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     const partialIssue = {
       ...sanitizedIssue,
       data: this.data,
+      label: this.label,
       path: issuePath,
-      label: this.common.label ?? generateIssueLabel(this.path, locale.defaultLabel),
       ...(this.common.warnOnly && { warning: true }),
     };
 
@@ -223,10 +245,27 @@ export class TParseContext<T extends AnyTType = AnyTType> {
 
     const fullIssue = { ...partialIssue, message: issueMsg };
 
+    const config = this.common.hooks.onIssue?.(fullIssue);
+
+    if (config?.skip) {
+      return this;
+    }
+
     if (this.common.warnOnly) {
       this._warnings.push(fullIssue);
     } else {
+      if (this.valid) {
+        this.invalidate();
+      } else if (this.common.abortEarly) {
+        return this;
+      }
       this._issues.push(fullIssue);
+      this._debug.log(
+        `Issue pushed to context: ${this._debug.underline(fullIssue.kind)} ${this._debug.italic(
+          `(Total issues on root: ${this.root.allIssues.length})`
+        )}`,
+        { ["__Total issues on root__"]: this.root.allIssues.length, ...fullIssue }
+      );
     }
 
     return this;
@@ -253,63 +292,73 @@ export class TParseContext<T extends AnyTType = AnyTType> {
       ...(this.allWarnings.length && { warnings: this.allWarnings }),
     };
 
-    if (!this.valid && !this.common.warnOnly) {
-      return {
-        ...base,
-        ok: false,
-        error: new TError(this),
-      };
-    }
+    const result: TParseResultSyncOf<T> =
+      this.valid || this.common.warnOnly
+        ? { ...base, ok: true, data: arguments.length > 0 ? data : this.data }
+        : { ...base, ok: false, error: new TError(this) };
 
-    return {
-      ...base,
-      ok: true,
-      data: arguments.length > 0 ? data : this.data,
+    this._debug.log(
+      `Returning ${
+        this.valid || this.common.warnOnly ? this._debug.bold.green("valid") : this._debug.bold.red("invalid")
+      } result`,
+      result
+    );
+
+    return result;
+  }
+
+  static readonly createSync = TParseContext._makeCreate(false);
+  static readonly createAsync = TParseContext._makeCreate(true);
+
+  private static _makeCreate(async: boolean) {
+    return <T extends AnyTType>(
+      t: T,
+      data: unknown,
+      options: DeepPartial<TParseOptions> | undefined
+    ): TParseContext<T> => {
+      return new TParseContext({
+        t,
+        data,
+        path: [],
+        parent: null,
+        common: makeCtxCommon(t.options, { ...options }, async),
+      });
     };
-  }
-
-  static createSync<T extends AnyTType>(
-    t: T,
-    data: unknown,
-    options: ProcessedTParseOptions<T["options"]>
-  ): TParseContext<T> {
-    return new TParseContext({
-      t,
-      data,
-      path: [],
-      parent: null,
-      common: { ...options, async: false },
-    });
-  }
-
-  static createAsync<T extends AnyTType>(
-    t: T,
-    data: unknown,
-    options: ProcessedTParseOptions<T["options"]>
-  ): TParseContext<T> {
-    return new TParseContext({
-      t,
-      data,
-      path: [],
-      parent: null,
-      common: { ...options, async: true },
-    });
   }
 }
 
-function processTParseContextCommon<T extends AnyTType, U extends AnyTType>(
-  t: T,
-  common: TParseContextCommon<U>
+function makeCtxCommon<T extends AnyTOptions>(
+  tOptions: T,
+  parseOptions: DeepPartial<TParseOptions>,
+  async: boolean
 ): TParseContextCommon<T> {
-  const processedSchemaOpts = processCreateOptions(t.options) as ProcessedTOptions<AnyTOptions>;
   return {
-    abortEarly: processedSchemaOpts.abortEarly || common.abortEarly,
-    label: processedSchemaOpts.label,
-    schemaErrorMap: processedSchemaOpts.schemaErrorMap,
-    contextualErrorMap: common.contextualErrorMap,
-    warnOnly: processedSchemaOpts.warnOnly || common.warnOnly,
-    messages: processedSchemaOpts.messages,
-    async: common.async,
+    abortEarly: tOptions.abortEarly ?? parseOptions.abortEarly ?? false,
+    label: tOptions.label ?? parseOptions.label,
+    debug: parseOptions.debug ?? false,
+    color: tOptions.color ?? TColor.White,
+    schemaErrorMap: tOptions.schemaErrorMap,
+    contextualErrorMap: parseOptions.contextualErrorMap,
+    warnOnly: tOptions.warnOnly ?? parseOptions.warnOnly ?? false,
+    messages: { ...tOptions.messages } as Exclude<T["messages"], undefined>,
+    hooks: {
+      onIssue: parseOptions.hooks?.onIssue ?? undefined,
+    },
+    async,
+  };
+}
+
+function deriveCtxCommon<T extends AnyTType, U extends AnyTType>(
+  t: T,
+  ctx: TParseContext<U>
+): TParseContextCommon<T["options"]> {
+  const previousCtxCommon = makeCtxCommon(t.options, ctx.common, ctx.common.async);
+  return {
+    ...previousCtxCommon,
+    // Overwrite schema-specific fields
+    label: t.options.label,
+    schemaErrorMap: t.options.schemaErrorMap,
+    messages: t.options.messages,
   };
 }
 

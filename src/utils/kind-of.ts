@@ -10,6 +10,7 @@ export const ValueKind = {
   Date: "Date",
   Error: "Error",
   False: "false",
+  Float: "float",
   Float32Array: "Float32Array",
   Float64Array: "Float64Array",
   Function: "function",
@@ -18,6 +19,7 @@ export const ValueKind = {
   Int16Array: "Int16Array",
   Int32Array: "Int32Array",
   Int8Array: "Int8Array",
+  Integer: "integer",
   Map: "Map",
   MapIterator: "Map Iterator",
   NaN: "NaN",
@@ -58,6 +60,7 @@ export type ValueKindMap<T extends ValueKind> = {
   Date: Date;
   Error: Error;
   false: false;
+  float: number;
   Float32Array: Float32Array;
   Float64Array: Float64Array;
   function: Function;
@@ -66,6 +69,7 @@ export type ValueKindMap<T extends ValueKind> = {
   Int16Array: Int16Array;
   Int32Array: Int32Array;
   Int8Array: Int8Array;
+  integer: number;
   Map: Map<unknown, unknown>;
   NaN: number;
   null: null;

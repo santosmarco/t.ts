@@ -1,7 +1,8 @@
+import { F } from "ts-toolbelt";
 import type * as tf from "type-fest";
 import { includes } from "./arrays";
 import { ValueKind, isKindOf } from "./kind-of";
-import type { BRANDED, Merge, Unbranded } from "./types";
+import type { BRANDED, Merge, ReadonlyDeep, Unbranded } from "./types";
 
 export function enbrand<T, U extends string>(x: T, _: U) {
   return x as BRANDED<T, U>;
@@ -33,4 +34,8 @@ export function conditionalOmitKindDeep<T extends object, V extends ValueKind>(x
 
 export function merge<A extends object, B extends object>(a: A, b: B): Merge<A, B> {
   return { ...a, ...b };
+}
+
+export function asConst<T>(x: F.Narrow<T>): ReadonlyDeep<T> {
+  return x as ReadonlyDeep<T>;
 }

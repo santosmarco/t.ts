@@ -28,3 +28,7 @@ export function filterOut<T extends readonly unknown[], U extends readonly unkno
 ): FilterOut<T, U[number]> {
   return arr.filter((y) => !includes(x, y)) as FilterOut<T, U[number]>;
 }
+
+export function randomPick<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)]!;
+}

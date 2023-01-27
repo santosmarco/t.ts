@@ -14,25 +14,22 @@ import type { AnyBrandedTDef, MakeTDef, TCtorDef, TRuntimeDef } from "./def";
 import type { TError, TErrorMap, TFlattenedErrorOf, TFormattedErrorOf } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind } from "./issues";
-import { parseMaybeDescriptive, type DescriptiveWithValue } from "./manifest";
-import {
-  pickTransferrableOptions,
-  processCreateOptions,
-  processParseOptions,
-  type TOptions,
-  type TParseOptions,
-} from "./options";
+import { MetaManifest, parseMaybeDescriptive, type DescriptiveWithValue } from "./manifest";
+import { pickTransferrableOptions, processCreateOptions, type TOptions } from "./options";
 import {
   TParseContext,
   type TParseContextIssueData,
   type TParseContextPath,
+  type TParseOptions,
   type TParseResult,
   type TParseResultOf,
   type TParseResultSyncOf,
 } from "./parse";
 import { TShow } from "./show";
 import {
+  DeepPartial,
   ValueKind,
+  asConst,
   assertNever,
   cloneDeep,
   debrand,
@@ -58,6 +55,7 @@ import {
   type _,
   type __,
 } from "./utils";
+import { printValue } from "./utils/print-value";
 
 export const TTypeName = {
   Any: "TAny",
@@ -112,6 +110,8 @@ export type tt = typeof tt;
 export abstract class TType<Def extends AnyBrandedTDef> {
   declare readonly $O: Def["$Out"];
   declare readonly $I: Def["$In"];
+
+  abstract get _metaManifest(): MetaManifest;
 
   protected readonly _def: TRuntimeDef<Def>;
 
@@ -224,12 +224,12 @@ export abstract class TType<Def extends AnyBrandedTDef> {
     return Promise.resolve(this._parse(ctx));
   }
 
-  safeParse(data: unknown, options?: TParseOptions): TParseResultSyncOf<this> {
-    const result = this._parseSync(TParseContext.createSync(this, data, processParseOptions(this.options, options)));
+  safeParse(data: unknown, options?: DeepPartial<TParseOptions>): TParseResultSyncOf<this> {
+    const result = this._parseSync(TParseContext.createSync(this, data, options));
     return result;
   }
 
-  parse(data: unknown, options?: TParseOptions): Def["$Out"] {
+  parse(data: unknown, options?: DeepPartial<TParseOptions>): Def["$Out"] {
     const result = this.safeParse(data, options);
 
     if (!result.ok) {
@@ -239,12 +239,12 @@ export abstract class TType<Def extends AnyBrandedTDef> {
     return result.data;
   }
 
-  async safeParseAsync(data: unknown, options?: TParseOptions): Promise<TParseResultSyncOf<this>> {
-    const result = this._parseAsync(TParseContext.createAsync(this, data, processParseOptions(this.options, options)));
+  async safeParseAsync(data: unknown, options?: DeepPartial<TParseOptions>): Promise<TParseResultSyncOf<this>> {
+    const result = this._parseAsync(TParseContext.createAsync(this, data, options));
     return result;
   }
 
-  async parseAsync(data: unknown, options?: TParseOptions): Promise<Def["$Out"]> {
+  async parseAsync(data: unknown, options?: DeepPartial<TParseOptions>): Promise<Def["$Out"]> {
     const result = await this.safeParseAsync(data, options);
 
     if (!result.ok) {
@@ -450,6 +450,24 @@ export abstract class TType<Def extends AnyBrandedTDef> {
 
   /* ---------------------------------------------------------------------------------------------------------------- */
 
+  get isOptional(): this["_metaManifest"]["optional"] {
+    return this._metaManifest.optional;
+  }
+
+  get isNullable(): this["_metaManifest"]["nullable"] {
+    return this._metaManifest.nullable;
+  }
+
+  get isNullish(): boolean {
+    return this.isOptional && this.isNullable;
+  }
+
+  get isRequired(): boolean {
+    return !this.isOptional;
+  }
+
+  /* ---------------------------------------------------------------------------------------------------------------- */
+
   protected _addCheck(
     check: Exclude<Def["$Checks"], null>[number],
     options?: { unique?: boolean; remove?: AtLeastOne<Exclude<Def["$Checks"], null>[number]["kind"]> }
@@ -502,6 +520,10 @@ export type TAnyDef = MakeTDef<{
 }>;
 
 export class TAny extends TType<TAnyDef> {
+  get _metaManifest() {
+    return asConst({ optional: true, nullable: true });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.return(ctx.data);
   }
@@ -521,6 +543,10 @@ export type TUnknownDef = MakeTDef<{
 }>;
 
 export class TUnknown extends TType<TUnknownDef> {
+  get _metaManifest() {
+    return asConst({ optional: true, nullable: true });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.return(ctx.data);
   }
@@ -543,6 +569,10 @@ export type TNeverDef = MakeTDef<{
 }>;
 
 export class TNever extends TType<TNeverDef> {
+  get _metaManifest() {
+    return asConst({ forbidden: true, optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx
       .addIssue({ kind: TIssueKind.Base.Forbidden }, this.options.messages?.[TIssueKind.Base.Forbidden])
@@ -564,6 +594,10 @@ export type TUndefinedDef = MakeTDef<{
 }>;
 
 export class TUndefined extends TType<TUndefinedDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.Undefined, literal: "undefined", optional: true, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
       ? ctx.return(ctx.data)
@@ -585,6 +619,10 @@ export type TVoidDef = MakeTDef<{
 }>;
 
 export class TVoid extends TType<TVoidDef> {
+  get _metaManifest() {
+    return asConst({ optional: true, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
       ? ctx.return(ctx.data)
@@ -606,6 +644,10 @@ export type TNullDef = MakeTDef<{
 }>;
 
 export class TNull extends TType<TNullDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.Null, literal: "null", optional: false, nullable: true });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Null)
       ? ctx.return(ctx.data)
@@ -654,6 +696,17 @@ const uuidRx =
   /^([a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[a-f0-9]{4}-[a-f0-9]{12}|00000000-0000-0000-0000-000000000000)$/i;
 
 export class TString<Co extends TStringCoercion = false> extends TType<TStringDef<Co>> {
+  get _metaManifest() {
+    return asConst({
+      type: ValueKind.String,
+      patterns: (
+        [this.isEmail && "email", this.isUrl && "url", this.isCuid && "cuid", this.isUuid && "uuid"] as const
+      ).filter((p): p is Exclude<typeof p, false> => !!p),
+      optional: this.props.coercion,
+      nullable: this.props.coercion,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (this.props.coercion) {
       ctx.setData(String(ctx.data));
@@ -933,6 +986,17 @@ function validatePrecision(data: number, check: { value: number; inclusive: bool
 export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasting = false> extends TType<
   TNumberDef<Co, Ca>
 > {
+  get _metaManifest() {
+    return asConst({
+      type: this.isInteger ? ValueKind.Integer : ValueKind.Number,
+      min: this.minValue ?? null,
+      max: this.maxValue ?? null,
+      multipleOf: this.multipleOf ?? null,
+      optional: this.props.coercion === true,
+      nullable: this.props.coercion === true,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     const { coercion, casting } = this.props;
 
@@ -1230,6 +1294,10 @@ export type TNaNDef = MakeTDef<{
 }>;
 
 export class TNaN extends TType<TNaNDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.NaN, literal: "NaN", optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.NaN)
       ? ctx.return(ctx.data)
@@ -1251,6 +1319,10 @@ export type TBigIntDef = MakeTDef<{
 }>;
 
 export class TBigInt extends TType<TBigIntDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.BigInt, optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.BigInt)) {
       return ctx.invalidType({ expected: ValueKind.BigInt }).return();
@@ -1274,6 +1346,10 @@ export type TBooleanDef = MakeTDef<{
 }>;
 
 export class TBoolean extends TType<TBooleanDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.Boolean, optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Boolean)) {
       return ctx.invalidType({ expected: ValueKind.Boolean }).return();
@@ -1303,6 +1379,10 @@ export type TTrueDef = MakeTDef<{
 }>;
 
 export class TTrue extends TType<TTrueDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.True, literal: "true", optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.data === true ? ctx.return<true>(ctx.data) : ctx.invalidType({ expected: ValueKind.True }).return();
   }
@@ -1320,6 +1400,10 @@ export type TFalseDef = MakeTDef<{
 }>;
 
 export class TFalse extends TType<TFalseDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.False, literal: "false", optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.data === false ? ctx.return<false>(ctx.data) : ctx.invalidType({ expected: ValueKind.False }).return();
   }
@@ -1339,6 +1423,10 @@ export type TDateDef = MakeTDef<{
 }>;
 
 export class TDate extends TType<TDateDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.Date, optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Date)) {
       return ctx.invalidType({ expected: ValueKind.Date }).return();
@@ -1362,6 +1450,10 @@ export type TSymbolDef = MakeTDef<{
 }>;
 
 export class TSymbol extends TType<TSymbolDef> {
+  get _metaManifest() {
+    return asConst({ type: ValueKind.Symbol, optional: false, nullable: false });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Symbol)
       ? ctx.return(ctx.data)
@@ -1389,6 +1481,24 @@ export type TLiteralDef<T extends TLiteralValue> = MakeTDef<{
 }>;
 
 export class TLiteral<T extends TLiteralValue> extends TType<TLiteralDef<T>> {
+  get _metaManifest() {
+    const kindOfValue = kindOf(this.value) as
+      | "string"
+      | "number"
+      | "bigint"
+      | "boolean"
+      | "symbol"
+      | "null"
+      | "undefined";
+
+    return asConst({
+      type: kindOfValue,
+      literal: printValue(this.value),
+      optional: kindOfValue === ValueKind.Undefined,
+      nullable: kindOfValue === ValueKind.Null,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     const kindOfValue = kindOf(this.value);
     const kindOfData = kindOf(ctx.data);
@@ -2926,7 +3036,7 @@ export class TObject<
     );
   }
 
-  deepPartial(): DeepPartial<this>;
+  deepPartial(): MakeDeepPartial<this>;
   deepPartial(): AnyTType {
     return deepPartialify(this).unwrap();
   }
@@ -3292,7 +3402,9 @@ export class TReadonly<T extends AnyTType> extends TType<TReadonlyDef<T>> {
     if (ctx.common.async) {
       return this.underlying
         ._parseAsync(ctx.child(this.underlying, ctx.data))
-        .then((res) => (res.data ? { ...res, data: Object.freeze(res.data) } : res));
+        .then((res) =>
+          res.data && isKindOf(res.data, ValueKind.Object) ? { ...res, data: Object.freeze(res.data) } : res
+        );
     }
 
     const res = this.underlying._parseSync(ctx.child(this.underlying, ctx.data));
@@ -4432,24 +4544,24 @@ function handleUnwrapDeep<T extends AnyTType, TN extends [TTypeName, ...TTypeNam
 export type DeepPartialTTupleItems<T extends readonly AnyTType[]> = T extends readonly []
   ? []
   : T extends readonly [infer H extends AnyTType, ...infer R extends readonly AnyTType[]]
-  ? [_DeepPartial<H>, ...DeepPartialTTupleItems<R>]
+  ? [_MakeDeepPartial<H>, ...DeepPartialTTupleItems<R>]
   : never;
 
-type _DeepPartial<T extends AnyTType> = T extends TTuple<infer I, infer R>
-  ? TOptional<TTuple<DeepPartialTTupleItems<I>, R extends AnyTType ? _DeepPartial<R> : R>>
+type _MakeDeepPartial<T extends AnyTType> = T extends TTuple<infer I, infer R>
+  ? TOptional<TTuple<DeepPartialTTupleItems<I>, R extends AnyTType ? _MakeDeepPartial<R> : R>>
   : T extends TMap<infer K, infer V>
-  ? TOptional<TMap<_DeepPartial<K>, _DeepPartial<V>>>
+  ? TOptional<TMap<_MakeDeepPartial<K>, _MakeDeepPartial<V>>>
   : T extends TArray<infer U, infer Card>
-  ? TOptional<TArray<_DeepPartial<U>, Card>>
+  ? TOptional<TArray<_MakeDeepPartial<U>, Card>>
   : T extends TSet<infer U>
-  ? TOptional<TSet<_DeepPartial<U>>>
+  ? TOptional<TSet<_MakeDeepPartial<U>>>
   : T extends TRecord<infer K, infer V>
-  ? TOptional<TRecord<K, _DeepPartial<V>>>
+  ? TOptional<TRecord<K, _MakeDeepPartial<V>>>
   : T extends TObject<infer S, infer U, infer C>
-  ? TOptional<TObject<{ [K in keyof S]: _DeepPartial<S[K]> }, U, C>>
+  ? TOptional<TObject<{ [K in keyof S]: _MakeDeepPartial<S[K]> }, U, C>>
   : TOptional<T>;
 
-export type DeepPartial<T extends AnyTType> = _DeepPartial<T> extends infer U extends AnyTOptional
+export type MakeDeepPartial<T extends AnyTType> = _MakeDeepPartial<T> extends infer U extends AnyTOptional
   ? U["underlying"]
   : never;
 

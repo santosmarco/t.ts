@@ -29,11 +29,12 @@ export type TManifest<O, I = O> = {
   readonly meta?: Readonly<Record<string, unknown>>;
 } & Descriptive;
 
-export type TRetrievableManifest<D extends AnyBrandedTDef> = D["$Manifest"] & {
-  readonly label?: string;
-};
-
 export type AnyTManifest = TManifest<any, any>;
+
+export type MetaManifest = {
+  readonly optional: boolean;
+  readonly nullable: boolean;
+};
 
 export function parseMaybeDescriptive(maybeDescriptive: string | DescriptiveWithValue<string>) {
   if (isKindOf(maybeDescriptive, ValueKind.String)) {

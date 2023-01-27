@@ -34,6 +34,13 @@ type _ReadonlyDeep<T> = tf.IsEqual<T, unknown> extends true
   : { readonly [K in keyof T]: _ReadonlyDeep<T[K]> } & {};
 export type ReadonlyDeep<T> = _<_ReadonlyDeep<T>>;
 
+type _DeepPartial<T> = tf.IsEqual<T, unknown> extends true
+  ? T
+  : T extends BuiltIn
+  ? T
+  : { [K in keyof T]?: _DeepPartial<T[K]> } & {};
+export type DeepPartial<T> = _<_DeepPartial<T>>;
+
 export type HasKey<T extends Record<string, unknown>, K extends keyof T> = K extends keyof T ? 1 : 0;
 
 export type GetNestedValues<T extends Record<string, unknown>> = {
