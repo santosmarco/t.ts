@@ -24,15 +24,14 @@ import {
 } from "./options";
 import {
   TParseContext,
-  TParseContextIssueData,
-  TParseContextPath,
-  TParseResult,
+  type TParseContextIssueData,
+  type TParseContextPath,
+  type TParseResult,
   type TParseResultOf,
   type TParseResultSyncOf,
 } from "./parse";
+import { TShow } from "./show";
 import {
-  BRANDED,
-  Unbranded,
   ValueKind,
   assertNever,
   cloneDeep,
@@ -47,10 +46,14 @@ import {
   tail,
   type AtLeastOne,
   type AtLeastTwo,
+  type BRANDED,
   type EnforceOptional,
+  type EnforceOptionalTuple,
   type FilterOut,
   type Merge,
+  type ReadonlyFlat,
   type Try,
+  type Unbranded,
   type UnionToTuple,
   type _,
   type __,
@@ -88,6 +91,7 @@ export const TTypeName = {
   Optional: "TOptional",
   Pipeline: "TPipeline",
   Promise: "TPromise",
+  Readonly: "TReadonly",
   Record: "TRecord",
   Set: "TSet",
   String: "TString",
@@ -116,6 +120,7 @@ export abstract class TType<Def extends AnyBrandedTDef> {
 
     this._def = cloneDeep({ typeName, props, options: debrand(options), manifest, checks });
 
+    this.show = this.show.bind(this);
     this.clone = this.clone.bind(this);
     // Parsing
     this._parse = this._parse.bind(this);
@@ -137,11 +142,12 @@ export abstract class TType<Def extends AnyBrandedTDef> {
     this.promisable = this.promisable.bind(this);
     this.or = this.or.bind(this);
     this.and = this.and.bind(this);
-    // this.brand = this.brand.bind(this);
+    this.brand = this.brand.bind(this);
     this.default = this.default.bind(this);
     this.catch = this.catch.bind(this);
     this.pipe = this.pipe.bind(this);
     this.lazy = this.lazy.bind(this);
+    this.readonly = this.readonly.bind(this);
     this.preprocess = this.preprocess.bind(this);
     this.refine = this.refine.bind(this);
     this.transform = this.transform.bind(this);
@@ -188,6 +194,12 @@ export abstract class TType<Def extends AnyBrandedTDef> {
 
   get checks(): Def["$Checks"] {
     return this._def.checks;
+  }
+
+  /* ---------------------------------------------------------------------------------------------------------------- */
+
+  show(): string {
+    return TShow(this);
   }
 
   clone(): this {
@@ -318,6 +330,10 @@ export abstract class TType<Def extends AnyBrandedTDef> {
 
   lazy(): TLazy<this> {
     return TLazy.create(() => this, pickTransferrableOptions(this.options));
+  }
+
+  readonly(): TReadonly<this> {
+    return TReadonly.create(this, pickTransferrableOptions(this.options));
   }
 
   preprocess<T extends InputOf<this>>(preprocess: (data: unknown) => T): TPreprocess<this, T> {
@@ -1582,7 +1598,7 @@ export type TArrayDef<T extends AnyTType, Card extends TArrayCardinality> = Make
   $Out: TArrayIO<T, Card>;
   $In: TArrayIO<T, Card, "$I">;
   $TypeName: "TArray";
-  $Props: { readonly element: T };
+  $Props: { readonly element: T; readonly cardinality: Card };
   $Checks: ReadonlyArray<TCheck.Min | TCheck.Max | TCheck.Length | TCheck.Range | TCheck.Unique | TCheck.Sort>;
 }>;
 
@@ -1782,7 +1798,8 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
   }
 
   nonempty(options?: { message?: string }): TArray<T, "atleastone"> {
-    return this.min(1, { inclusive: true, message: options?.message }) as TArray<T, "atleastone">;
+    const updated = this.min(1, { inclusive: true, message: options?.message });
+    return new TArray<T, "atleastone">({ ...updated._def, props: { ...updated.props, cardinality: "atleastone" } });
   }
 
   unique(comparator?: TArrayComparatorFn<T, boolean>, options?: { strict?: boolean; message?: string }): this;
@@ -1846,6 +1863,32 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     });
   }
 
+  get minItems(): number | undefined {
+    return filterChecks(this.checks, [TCheckKind.Min, TCheckKind.Length]).reduce<number | undefined>(
+      (min, check) => (min === undefined || check.value > min ? check.value : min),
+      undefined
+    );
+  }
+
+  get maxItems(): number | undefined {
+    return filterChecks(this.checks, [TCheckKind.Max, TCheckKind.Length]).reduce<number | undefined>(
+      (max, check) => (max === undefined || check.value < max ? check.value : max),
+      undefined
+    );
+  }
+
+  get isNonEmpty(): boolean {
+    return this.props.cardinality === "atleastone";
+  }
+
+  get isUnique(): boolean {
+    return filterChecks(this.checks, [TCheckKind.Unique]).length > 0;
+  }
+
+  get isSorted(): boolean {
+    return filterChecks(this.checks, [TCheckKind.Sort]).length > 0;
+  }
+
   static readonly create = Object.freeze(
     Object.assign(TArray._create, {
       of<T extends AnyTType>(element: T, options?: TOptions): TArray<T> {
@@ -1857,7 +1900,7 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
   private static _create<T extends AnyTType>(element: T, options?: TOptions): TArray<T> {
     return new TArray({
       typeName: TTypeName.Array,
-      props: { element },
+      props: { element, cardinality: "many" },
       checks: [],
       options: processCreateOptions(options),
     });
@@ -1871,7 +1914,7 @@ export type AnyTArray = TArray<AnyTType, TArrayCardinality>;
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export type TTupleIO<T extends readonly AnyTType[], R extends AnyTType | null, IO extends "$O" | "$I" = "$O"> = [
-  ...{ [K in keyof T]: T[K][IO] },
+  ...EnforceOptionalTuple<{ [K in keyof T]: T[K][IO] }>,
   ...(R extends AnyTType ? Array<R[IO]> : [])
 ];
 
@@ -2009,6 +2052,21 @@ export class TTuple<T extends readonly AnyTType[], R extends AnyTType | null> ex
             : this.restType ?? other.restType,
       },
     });
+  }
+
+  map<U extends AnyTType>(fn: (item: T[number], index: number) => U): TTuple<{ [K in keyof T]: U }, R> {
+    return new TTuple<{ [K in keyof T]: U }, R>({
+      ...this._def,
+      props: { ...this.props, items: this.items.map((i, idx) => fn(i, idx)) as { [K in keyof T]: U } },
+    });
+  }
+
+  partial(): TTuple<{ [K in keyof T]: TOptional<T[K]> }, R> {
+    return this.map((i) => i.optional());
+  }
+
+  required(): TTuple<{ [K in keyof T]: TDefined<T[K]> }, R> {
+    return this.map((i) => i.defined());
   }
 
   static create<T extends AtLeastOne<AnyTType> | readonly [], R extends AnyTType | null>(
@@ -2329,11 +2387,18 @@ export class TBuffer extends TType<TBufferDef> {
 
 export type TRecordKeys = TType<Merge<AnyBrandedTDef, { $Out: PropertyKey; $In: PropertyKey }>>;
 
+export type TRecordIO<K extends TRecordKeys, V extends AnyTType, IO extends "$O" | "$I" = "$O"> = true extends
+  | tf.IsEqual<K[IO], string>
+  | tf.IsEqual<K[IO], number>
+  | tf.IsEqual<K[IO], symbol>
+  ? Record<K[IO], V[IO]>
+  : Partial<Record<K[IO], V[IO]>>;
+
 export type TRecordOptions = TOptions<{ issueKinds: ["record.invalid_key"] }>;
 
 export type TRecordDef<K extends TRecordKeys, V extends AnyTType> = MakeTDef<{
-  $Out: Record<K["$O"], V["$O"]>;
-  $In: Record<K["$I"], V["$I"]>;
+  $Out: TRecordIO<K, V>;
+  $In: TRecordIO<K, V, "$I">;
   $TypeName: "TRecord";
   $Props: { readonly keys: K; readonly values: V };
   $Checks: ReadonlyArray<TCheck.MinKeys | TCheck.MaxKeys>;
@@ -2470,15 +2535,20 @@ export class TRecord<K extends TRecordKeys, V extends AnyTType> extends TType<TR
     });
   }
 
-  required(): TRecord<K, TDefined<V>> {
-    return new TRecord<K, TDefined<V>>({ ...this._def, props: { ...this.props, values: this.props.values.defined() } });
+  mapKeys<U extends TRecordKeys>(fn: (key: K) => U): TRecord<U, V> {
+    return new TRecord<U, V>({ ...this._def, props: { ...this.props, keys: fn(this.keys) } });
+  }
+
+  mapValues<U extends AnyTType>(fn: (value: V) => U): TRecord<K, U> {
+    return new TRecord<K, U>({ ...this._def, props: { ...this.props, values: fn(this.values) } });
   }
 
   partial(): TRecord<K, TOptional<V>> {
-    return new TRecord<K, TOptional<V>>({
-      ...this._def,
-      props: { ...this.props, values: this.props.values.optional() },
-    });
+    return this.mapValues((v) => v.optional());
+  }
+
+  required(): TRecord<K, TDefined<V>> {
+    return this.mapValues((v) => v.defined());
   }
 
   static create<V extends AnyTType>(values: V, options?: TRecordOptions): TRecord<TString, V>;
@@ -2522,7 +2592,7 @@ export type TMapDef<K extends AnyTType, V extends AnyTType> = MakeTDef<{
   $Options: TMapOptions;
 }>;
 
-export class TMap<K extends TRecordKeys, V extends AnyTType> extends TType<TMapDef<K, V>> {
+export class TMap<K extends AnyTType, V extends AnyTType> extends TType<TMapDef<K, V>> {
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Map)) {
       return ctx.invalidType({ expected: ValueKind.Map }).return();
@@ -2595,12 +2665,20 @@ export class TMap<K extends TRecordKeys, V extends AnyTType> extends TType<TMapD
     return [this.keys, this.values];
   }
 
-  required(): TMap<K, TDefined<V>> {
-    return new TMap<K, TDefined<V>>({ ...this._def, props: { ...this.props, values: this.props.values.defined() } });
+  mapKeys<U extends AnyTType>(fn: (key: K) => U): TMap<U, V> {
+    return new TMap<U, V>({ ...this._def, props: { ...this.props, keys: fn(this.keys) } });
+  }
+
+  mapValues<U extends AnyTType>(fn: (value: V) => U): TMap<K, U> {
+    return new TMap<K, U>({ ...this._def, props: { ...this.props, values: fn(this.values) } });
   }
 
   partial(): TMap<K, TOptional<V>> {
-    return new TMap<K, TOptional<V>>({ ...this._def, props: { ...this.props, values: this.props.values.optional() } });
+    return this.mapValues((v) => v.optional());
+  }
+
+  required(): TMap<K, TDefined<V>> {
+    return this.mapValues((v) => v.defined());
   }
 
   static create<K extends AnyTType, V extends AnyTType>(keys: K, values: V, options?: TMapOptions): TMap<K, V> {
@@ -2812,15 +2890,26 @@ export class TObject<
   }
 
   pick<K extends AtLeastOne<keyof S>>(keys: K) {
-    return this._setShape(pick(this.shape, keys));
+    return this._setShape(pick<S, K[number]>(this.shape, keys));
   }
 
   omit<K extends AtLeastOne<keyof S>>(keys: K) {
-    return this._setShape(omit(this.shape, keys));
+    return this._setShape(omit<S, K[number]>(this.shape, keys));
   }
 
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment, @typescript-eslint/prefer-ts-expect-error
   // @ts-ignore
+  partial(): TObject<{ [K in keyof S]: TOptional<S[K]> }, U, C>;
+  partial<K extends AtLeastOne<keyof S>>(
+    keys: K
+  ): TObject<{ [P in keyof S]: P extends K ? TOptional<S[P]> : S[P] }, U, C>;
+  partial(keys?: AtLeastOne<keyof S>): AnyTObject {
+    return this._setShape(
+      Object.fromEntries(
+        Object.entries(this.shape).map(([k, v]) => [k, keys ? (keys.includes(k) ? v.optional() : v) : v.optional()])
+      )
+    );
+  }
+
   required(): TObject<{ [K in keyof S]: TDefined<S[K]> }, U, C>;
   required<K extends AtLeastOne<keyof S>>(
     keys: K
@@ -2833,16 +2922,9 @@ export class TObject<
     );
   }
 
-  partial(): TObject<{ [K in keyof S]: TOptional<S[K]> }, U, C>;
-  partial<K extends AtLeastOne<keyof S>>(
-    keys: K
-  ): TObject<{ [P in keyof S]: P extends K ? TOptional<S[P]> : S[P] }, U, C>;
-  partial(keys?: AtLeastOne<keyof S>): AnyTObject {
-    return this._setShape(
-      Object.fromEntries(
-        Object.entries(this.shape).map(([k, v]) => [k, keys ? (keys.includes(k) ? v.optional() : v) : v.optional()])
-      )
-    );
+  deepPartial(): DeepPartial<this>;
+  deepPartial(): AnyTType {
+    return deepPartialify(this).unwrap();
   }
 
   private _setShape<T extends TObjectShape>(shape: T) {
@@ -2948,6 +3030,10 @@ export class TPromise<T extends AnyTType> extends TType<TPromiseDef<T>> {
     return handleUnwrapDeep(this.underlying, [TTypeName.Promise]);
   }
 
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TPromise<U> {
+    return new TPromise<U>({ ...this._def, props: { ...this.props, underlying: fn(this.underlying) } });
+  }
+
   static create<T extends AnyTType>(underlying: T, options?: TOptions): TPromise<T> {
     return new TPromise({ typeName: TTypeName.Promise, props: { underlying }, options: processCreateOptions(options) });
   }
@@ -2987,6 +3073,10 @@ export class TOptional<T extends AnyTType> extends TType<TOptionalDef<T>> {
 
   unwrapNullishDeep(): UnwrapDeep<T, "TOptional" | "TNullable"> {
     return handleUnwrapDeep(this.underlying, [TTypeName.Optional, TTypeName.Nullable]);
+  }
+
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TOptional<U> {
+    return new TOptional<U>({ ...this._def, props: { ...this.props, underlying: fn(this.underlying) } });
   }
 
   static create<T extends AnyTType>(underlying: T, options?: TOptions): TOptional<T> {
@@ -3034,6 +3124,10 @@ export class TNullable<T extends AnyTType> extends TType<TNullableDef<T>> {
     return handleUnwrapDeep(this.underlying, [TTypeName.Nullable, TTypeName.Optional]);
   }
 
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TNullable<U> {
+    return new TNullable<U>({ ...this._def, props: { ...this.props, underlying: fn(this.underlying) } });
+  }
+
   static create<T extends AnyTType>(underlying: T, options?: TOptions): TNullable<T> {
     return new TNullable({
       typeName: TTypeName.Nullable,
@@ -3073,6 +3167,10 @@ export class TDefined<T extends AnyTType> extends TType<TDefinedDef<T>> {
 
   unwrapDeep(): UnwrapDeep<T, "TDefined"> {
     return handleUnwrapDeep(this.underlying, [TTypeName.Defined]);
+  }
+
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TDefined<U> {
+    return new TDefined<U>({ ...this._def, props: { ...this.props, underlying: fn(this.underlying) } });
   }
 
   static create<T extends AnyTType>(underlying: T, options?: TOptions): TDefined<T> {
@@ -3120,6 +3218,10 @@ export class TNonNullable<T extends AnyTType> extends TType<TNonNullableDef<T>> 
     return handleUnwrapDeep(this.underlying, [TTypeName.NonNullable]);
   }
 
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TNonNullable<U> {
+    return new TNonNullable<U>({ ...this._def, props: { ...this.props, underlying: fn(this.underlying) } });
+  }
+
   static create<T extends AnyTType>(underlying: T, options?: TNonNullableOptions): TNonNullable<T> {
     return new TNonNullable({
       typeName: TTypeName.NonNullable,
@@ -3159,12 +3261,64 @@ export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> {
     return handleUnwrapDeep(this.underlying, [TTypeName.Lazy]);
   }
 
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TLazy<U> {
+    return new TLazy<U>({ ...this._def, props: { ...this.props, getType: () => fn(this.underlying) } });
+  }
+
   static create<T extends AnyTType>(getType: () => T, options?: TOptions): TLazy<T> {
     return new TLazy({ typeName: TTypeName.Lazy, props: { getType }, options: processCreateOptions(options) });
   }
 }
 
 export type AnyTLazy = TLazy<AnyTType>;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                      TReadonly                                                     */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+export type TReadonlyDef<T extends AnyTType> = MakeTDef<{
+  $Out: ReadonlyFlat<OutputOf<T>>;
+  $In: InputOf<T>;
+  $TypeName: "TReadonly";
+  $Props: { readonly underlying: T };
+}>;
+
+export class TReadonly<T extends AnyTType> extends TType<TReadonlyDef<T>> {
+  _parse(ctx: TParseContext<this>): TParseResultOf<this> {
+    if (ctx.common.async) {
+      return this.underlying
+        ._parseAsync(ctx.child(this.underlying, ctx.data))
+        .then((res) => (res.data ? { ...res, data: Object.freeze(res.data) } : res));
+    }
+
+    const res = this.underlying._parseSync(ctx.child(this.underlying, ctx.data));
+    return res.data ? { ...res, data: Object.freeze(res.data) } : res;
+  }
+
+  get underlying(): T {
+    return this.props.underlying;
+  }
+
+  unwrap(): T {
+    return this.underlying;
+  }
+
+  unwrapDeep(): UnwrapDeep<T, "TReadonly"> {
+    return handleUnwrapDeep(this.underlying, [TTypeName.Readonly]);
+  }
+
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TReadonly<U> {
+    return new TReadonly<U>({ ...this._def, props: { ...this.props, underlying: fn(this.underlying) } });
+  }
+
+  static create<T extends AnyTType>(underlying: T, options?: TOptions): TReadonly<T> {
+    return new TReadonly({
+      typeName: TTypeName.Readonly,
+      props: { underlying },
+      options: processCreateOptions(options),
+    });
+  }
+}
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TBrand                                                       */
@@ -3200,6 +3354,10 @@ export class TBrand<T extends AnyTType, B> extends TType<TBrandDef<T, B>> {
 
   removeBrand(): T {
     return this.underlying;
+  }
+
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TBrand<U, B> {
+    return new TBrand<U, B>({ ...this._def, props: { ...this.props, underlying: fn(this.underlying) } });
   }
 
   static create<T extends AnyTType, B>(underlying: T, getBrand: () => F.Narrow<B>, options?: TOptions): TBrand<T, B>;
@@ -3798,7 +3956,17 @@ export class TEffects<T extends AnyTType, Out = OutputOf<T>, In = InputOf<T>> ex
   get effect(): TEffect<T> {
     return this.props.effect;
   }
+
+  unwrap(): T {
+    return this.underlying;
+  }
+
+  unwrapDeep(): UnwrapDeep<T, "TEffects"> {
+    return handleUnwrapDeep(this.underlying, [TTypeName.Effects]);
+  }
 }
+
+export type AnyTEffects = TEffects<AnyTType, unknown, unknown>;
 
 /* --------------------------------------------------- TPreprocess -------------------------------------------------- */
 
@@ -4138,6 +4306,7 @@ export const optionalType = TOptional.create.bind(TOptional);
 export const pipelineType = TPipeline.create.bind(TPipeline);
 export const preprocessType = TPreprocess.create.bind(TPreprocess);
 export const promiseType = TPromise.create.bind(TPromise);
+export const readonlyType = TReadonly.create.bind(TReadonly);
 export const recordType = TRecord.create.bind(TRecord);
 export const refinementType = TRefinement.create.bind(TRefinement);
 export const setType = TSet.create.bind(TSet);
@@ -4198,6 +4367,7 @@ export {
   pipelineType as pipeline,
   preprocessType as preprocess,
   promiseType as promise,
+  readonlyType as readonly,
   recordType as record,
   refinementType as refine,
   refinementType as refinement,
@@ -4222,7 +4392,7 @@ export type infer<T extends AnyTType> = output<T>;
 export type inferFormattedError<T extends AnyTType> = __<TFormattedErrorOf<T>>;
 export type inferFlattenedError<T extends AnyTType> = __<TFlattenedErrorOf<T>>;
 
-export type inferPaths<T extends AnyTType> = T extends unknown ? TPathsOf<T> : never;
+export type inferPaths<T extends AnyTType> = TPathsOf<T> extends infer P extends string ? P : never;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -4253,33 +4423,106 @@ function handleUnwrapDeep<T extends AnyTType, TN extends [TTypeName, ...TTypeNam
   return unwrapped as UnwrapDeep<T, TN[number]>;
 }
 
+export type DeepPartialTTupleItems<T extends readonly AnyTType[]> = T extends readonly []
+  ? []
+  : T extends readonly [infer H extends AnyTType, ...infer R extends readonly AnyTType[]]
+  ? [_DeepPartial<H>, ...DeepPartialTTupleItems<R>]
+  : never;
+
+type _DeepPartial<T extends AnyTType> = T extends TTuple<infer I, infer R>
+  ? TOptional<TTuple<DeepPartialTTupleItems<I>, R extends AnyTType ? _DeepPartial<R> : R>>
+  : T extends TMap<infer K, infer V>
+  ? TOptional<TMap<_DeepPartial<K>, _DeepPartial<V>>>
+  : T extends TArray<infer U, infer Card>
+  ? TOptional<TArray<_DeepPartial<U>, Card>>
+  : T extends TSet<infer U>
+  ? TOptional<TSet<_DeepPartial<U>>>
+  : T extends TRecord<infer K, infer V>
+  ? TOptional<TRecord<K, _DeepPartial<V>>>
+  : T extends TPromise<infer U>
+  ? TOptional<TPromise<_DeepPartial<U>>>
+  : T extends TReadonly<infer U>
+  ? TOptional<TReadonly<_DeepPartial<U>>>
+  : T extends TObject<infer S, infer U, infer C>
+  ? TOptional<TObject<{ [K in keyof S]: _DeepPartial<S[K]> }, U, C>>
+  : TOptional<T>;
+
+export type DeepPartial<T extends AnyTType> = _DeepPartial<T> extends infer U extends AnyTOptional
+  ? U["underlying"]
+  : never;
+
+function deepPartialify(t: AnyTType): AnyTOptional {
+  if (t instanceof TOptional) {
+    return t;
+  }
+
+  return (() => {
+    if (t instanceof TArray || t instanceof TSet) {
+      return t.map((v) => deepPartialify(v));
+    }
+
+    if (t instanceof TTuple) {
+      const withDeepPartialItems = t.map((i) => deepPartialify(i));
+      return t.restType ? withDeepPartialItems.rest(deepPartialify(t.restType)) : withDeepPartialItems;
+    }
+
+    if (t instanceof TRecord) {
+      return t.mapValues((v) => deepPartialify(v));
+    }
+
+    if (t instanceof TMap) {
+      return t.mapKeys((k) => deepPartialify(k)).mapValues((v) => deepPartialify(v));
+    }
+
+    if (t instanceof TPromise || t instanceof TReadonly) {
+      return t.modify((v) => deepPartialify(v));
+    }
+
+    if (t instanceof TObject) {
+      return TObject.create(
+        Object.fromEntries(Object.entries(t.props.shape).map(([k, v]) => [k, deepPartialify(v as AnyTType)] as const))
+      );
+    }
+
+    return t;
+  })().optional();
+}
+
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+type UnwrapForPaths<T extends AnyTType> = UnwrapUntil<T, "TObject" | "TTuple" | "TArray">;
 
 type TArrayElementPaths<T extends AnyTType> =
   | `[${number}]`
-  | (T extends AnyTObject
-      ? `[${number}].${TObjectShapePaths<T["shape"]>}`
-      : T extends AnyTTuple
-      ? `[${number}]${TTuplePaths<T>}`
-      : T extends AnyTArray
-      ? `[${number}]${TArrayElementPaths<T["element"]>}`
+  | (UnwrapForPaths<T> extends infer U
+      ? U extends AnyTObject
+        ? `[${number}].${TObjectShapePaths<U["shape"]>}`
+        : U extends AnyTTuple
+        ? `[${number}]${TTuplePaths<U>}`
+        : U extends AnyTArray
+        ? `[${number}]${TArrayElementPaths<U["element"]>}`
+        : never
       : never);
 
-export type TArrayPaths<T extends AnyTArray> = TArrayElementPaths<T["element"]>;
+export type TArrayPaths<T extends AnyTType> = T extends AnyTArray ? TArrayElementPaths<T["element"]> : never;
 
-type TTuplePaths<T extends AnyTTuple, Acc extends readonly string[] = []> = T["items"] extends infer U
-  ? U extends readonly []
-    ? Acc[number]
-    : U extends readonly [infer H extends AnyTType, ...infer R extends readonly AnyTType[]]
-    ?
-        | (H extends AnyTObject
-            ? `[${Acc["length"]}].${TObjectShapePaths<H["shape"]>}`
-            : H extends AnyTTuple
-            ? `[${Acc["length"]}]${TTuplePaths<H>}`
-            : H extends AnyTArray
-            ? `[${Acc["length"]}]${TArrayElementPaths<H["element"]>}`
-            : never)
-        | TTuplePaths<TTuple<[...R], T["restType"]>, [...Acc, `[${Acc["length"]}]`]>
+type TTuplePaths<T extends AnyTType, Acc extends readonly string[] = []> = T extends AnyTTuple
+  ? T["items"] extends infer U
+    ? U extends readonly []
+      ? Acc[number]
+      : U extends readonly [infer H extends AnyTType, ...infer R extends readonly AnyTType[]]
+      ?
+          | (UnwrapForPaths<H> extends infer U
+              ? U extends AnyTObject
+                ? `[${Acc["length"]}].${TObjectShapePaths<U["shape"]>}`
+                : U extends AnyTTuple
+                ? `[${Acc["length"]}]${TTuplePaths<U>}`
+                : U extends AnyTArray
+                ? `[${Acc["length"]}]${TArrayElementPaths<U["element"]>}`
+                : never
+              : never)
+          | TTuplePaths<TTuple<[...R], T["restType"]>, [...Acc, `[${Acc["length"]}]`]>
+      : never
     : never
   : never;
 
@@ -4287,19 +4530,21 @@ type TObjectShapePaths<T extends TObjectShape> = {
   [K in keyof T]:
     | K
     | (K extends string
-        ? T[K] extends AnyTObject
-          ? `${K}.${TObjectShapePaths<T[K]["shape"]>}`
-          : T[K] extends AnyTTuple
-          ? `${K}${TTuplePaths<T[K]>}`
-          : T[K] extends AnyTArray
-          ? `${K}${TArrayElementPaths<T[K]["element"]>}`
+        ? UnwrapForPaths<T[K]> extends infer U
+          ? U extends AnyTObject
+            ? `${K}.${TObjectShapePaths<U["shape"]>}`
+            : U extends AnyTTuple
+            ? `${K}${TTuplePaths<U>}`
+            : U extends AnyTArray
+            ? `${K}${TArrayElementPaths<U["element"]>}`
+            : never
           : never
         : never);
 }[keyof T] extends infer P extends string
   ? P
   : never;
 
-export type TObjectPaths<T extends AnyTObject> = TObjectShapePaths<T["shape"]>;
+export type TObjectPaths<T extends AnyTType> = T extends AnyTObject ? TObjectShapePaths<T["shape"]> : never;
 
 type _TPathsOf<T extends AnyTType> = T extends AnyTUnion | AnyTIntersection
   ? T["types"][number] extends infer U extends AnyTType
@@ -4308,9 +4553,9 @@ type _TPathsOf<T extends AnyTType> = T extends AnyTUnion | AnyTIntersection
   : T extends AnyTTuple
   ? TTuplePaths<T>
   : T extends AnyTObject
-  ? TObjectPaths<T>
+  ? TObjectShapePaths<T["shape"]>
   : T extends AnyTArray
   ? TArrayElementPaths<T["element"]>
   : never;
 
-export type TPathsOf<T extends AnyTType> = _TPathsOf<UnwrapUntil<T, "TObject" | "TTuple" | "TArray">>;
+export type TPathsOf<T extends AnyTType> = _TPathsOf<UnwrapForPaths<T>>;
