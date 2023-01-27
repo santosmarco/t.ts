@@ -191,7 +191,7 @@ const enUS: TLocale = {
     }
   },
   defaultLabel: "value",
-};
+} as const;
 
 function pluralize(n: number, singular: string, plural: string): string {
   return n === 1 ? singular : plural;
