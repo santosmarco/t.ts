@@ -1,32 +1,40 @@
 import type * as tf from "type-fest";
-import { omit, type AtLeastOne } from "./utils";
+import { ValueKind, isKindOf, omit, type AtLeastOne } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TChecks                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export const TCheckKind = {
-  Cuid: "cuid",
-  Email: "email",
-  Finite: "finite",
-  Integer: "integer",
-  Length: "length",
-  Max: "max",
-  MaxKeys: "max_keys",
   Min: "min",
-  MinKeys: "min_keys",
-  Multiple: "multiple",
-  Pattern: "pattern",
-  Port: "port",
-  Precision: "precision",
-  Range: "range",
-  Safe: "safe",
+  Max: "max",
+  Length: "length",
   Size: "size",
-  Sort: "sort",
-  TupleLength: "tuple_length",
-  Unique: "unique",
+  Range: "range",
+  // String
+  Pattern: "pattern",
+  Alphanum: "alphanum",
+  Email: "email",
   Url: "url",
+  Cuid: "cuid",
   Uuid: "uuid",
+  Hex: "hex",
+  Base64: "base64",
+  // Number
+  Integer: "integer",
+  Precision: "precision",
+  Multiple: "multiple",
+  Port: "port",
+  Safe: "safe",
+  Finite: "finite",
+  // Array
+  Unique: "unique",
+  Sort: "sort",
+  // Tuple
+  TupleLength: "tuple_length",
+  // Record
+  MinKeys: "min_keys",
+  MaxKeys: "max_keys",
   // ——— Transforms
   Trim: "trim",
   Uppercase: "uppercase",
@@ -65,11 +73,14 @@ export namespace TCheck {
     { comparator: ((a: any, b: any, x: number, y: number, arr: any[]) => number) | null; strict: boolean }
   >;
 
-  export type Cuid = MakeTCheck<"cuid">;
-  export type Email = MakeTCheck<"email">;
   export type Pattern = MakeTCheck<"pattern", { pattern: RegExp; type: "disallow" | "enforce"; name: string }>;
+  export type Alphanum = MakeTCheck<"alphanum">;
+  export type Email = MakeTCheck<"email">;
   export type Url = MakeTCheck<"url">;
+  export type Cuid = MakeTCheck<"cuid">;
   export type Uuid = MakeTCheck<"uuid">;
+  export type Hex = MakeTCheck<"hex">;
+  export type Base64 = MakeTCheck<"base64", { paddingRequired: boolean; urlSafe: boolean }>;
   // ——— Transforms
   export type Trim = MakeTCheck<"trim">;
   export type Uppercase = MakeTCheck<"uppercase">;
@@ -86,6 +97,49 @@ export namespace TCheck {
 
   export type MaxKeys = MakeTCheck<"max_keys", { value: number; inclusive: boolean }>;
   export type MinKeys = MakeTCheck<"min_keys", { value: number; inclusive: boolean }>;
+}
+
+export function parseSimpleCheck<K extends TCheckKind>(kind: K, options: { message?: string } | string | undefined) {
+  const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
+  return { kind, message: parsedOpts.message };
+}
+
+export function parseMinCheck<V>(
+  value: V,
+  options: Partial<Pick<TCheck.Min<V>, "inclusive" | "message">> | string | undefined
+) {
+  const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
+  return {
+    ...parseSimpleCheck(TCheckKind.Min, options),
+    value,
+    inclusive: parsedOpts.inclusive ?? true,
+  };
+}
+
+export function parseMaxCheck<V>(
+  value: V,
+  options: Partial<Pick<TCheck.Max<V>, "inclusive" | "message">> | string | undefined
+) {
+  const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
+  return {
+    ...parseSimpleCheck(TCheckKind.Max, options),
+    value,
+    inclusive: parsedOpts.inclusive ?? true,
+  };
+}
+
+export function parseRangeCheck<V>(
+  min: V,
+  max: V,
+  options: Partial<Pick<TCheck.Range<V>, "inclusive" | "message">> | string | undefined
+) {
+  const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
+  return {
+    ...parseSimpleCheck(TCheckKind.Range, options),
+    min,
+    max,
+    inclusive: parsedOpts.inclusive ?? "[)",
+  };
 }
 
 export function validateMin<V>(value: V, check: TCheck.Min<V> | TCheck.MinKeys): boolean {

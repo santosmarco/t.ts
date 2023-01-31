@@ -2,9 +2,9 @@ import type * as tf from "type-fest";
 import { TError, resolveErrorMaps } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
-import { processCreateOptions, type AnyTOptions, type ProcessedTOptions, type ProcessedTParseOptions } from "./options";
+import { type ProcessedParseOptions } from "./options";
 import type { AnyTType } from "./types";
-import { StripKey, ValueKind, conditionalOmitKindDeep, isKindOf, kindOf } from "./utils";
+import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf, type StripKey } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TParse                                                       */
@@ -48,7 +48,7 @@ export type TParseContextIssueData = StripKey<TIssue, keyof tf.Except<TIssueBase
   readonly path?: TParseContextPath;
 };
 
-export type TParseContextCommon<T extends AnyTType> = ProcessedTParseOptions<T["options"]> & {
+export type TParseContextCommon<T extends AnyTType = AnyTType> = ProcessedParseOptions<T["options"]> & {
   readonly async: boolean;
 };
 
@@ -271,7 +271,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   static createSync<T extends AnyTType>(
     t: T,
     data: unknown,
-    options: ProcessedTParseOptions<T["options"]>
+    options: ProcessedParseOptions<T["options"]>
   ): TParseContext<T> {
     return new TParseContext({
       t,
@@ -285,7 +285,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   static createAsync<T extends AnyTType>(
     t: T,
     data: unknown,
-    options: ProcessedTParseOptions<T["options"]>
+    options: ProcessedParseOptions<T["options"]>
   ): TParseContext<T> {
     return new TParseContext({
       t,
@@ -297,18 +297,12 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   }
 }
 
-function processTParseContextCommon<T extends AnyTType, U extends AnyTType>(
-  t: T,
-  common: TParseContextCommon<U>
-): TParseContextCommon<T> {
-  const processedSchemaOpts = processCreateOptions(t.options) as ProcessedTOptions<AnyTOptions>;
+function processTParseContextCommon<T extends AnyTType>(t: T, common: TParseContextCommon): TParseContextCommon<T> {
   return {
-    abortEarly: processedSchemaOpts.abortEarly || common.abortEarly,
-    label: processedSchemaOpts.label,
-    schemaErrorMap: processedSchemaOpts.schemaErrorMap,
+    ...t.options,
+    abortEarly: t.options.abortEarly || common.abortEarly,
     contextualErrorMap: common.contextualErrorMap,
-    warnOnly: processedSchemaOpts.warnOnly || common.warnOnly,
-    messages: processedSchemaOpts.messages,
+    warnOnly: t.options.warnOnly || common.warnOnly,
     async: common.async,
   };
 }

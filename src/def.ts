@@ -1,9 +1,7 @@
 import type * as tf from "type-fest";
 import type { TCheckBase } from "./checks";
-import type { AnyTManifest, TManifest } from "./manifest";
-import type { TOptions, ProcessedTOptions } from "./options";
+import type { AnyTOptions, TOptions } from "./options";
 import type { TTypeName } from "./types";
-import type { BRANDED, HasKey } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                        TDef                                                        */
@@ -15,44 +13,17 @@ export interface TDef {
   $In: unknown;
   $TypeName: TTypeName;
   $Props: Record<string, unknown> | null;
-  $Options: TOptions;
-  $Manifest: TManifest<this["$Out"], this["$In"]>;
+  $Options: AnyTOptions;
   $Checks: ReadonlyArray<TCheckBase & Record<string, unknown>> | null;
 }
 
-export type MakeTDef<
-  T extends tf.Exact<tf.SetOptional<TDef, "$In" | "$Props" | "$Options" | "$Manifest" | "$Checks">, T>
-> = [{ 0: T["$Out"]; 1: T["$In"] }[HasKey<T, "$In">]] extends [infer In]
-  ? BRANDED<
-      {
-        $Out: T["$Out"];
-        $In: In;
-        $TypeName: T["$TypeName"];
-        $Props: { 0: null; 1: T["$Props"] }[HasKey<T, "$Props">];
-        $Options: ProcessedTOptions<Exclude<{ 0: TOptions; 1: T["$Options"] }[HasKey<T, "$Options">], undefined>>;
-        $Manifest: { 0: TManifest<T["$Out"], In>; 1: T["$Manifest"] }[HasKey<T, "$Manifest">];
-        $Checks: { 0: null; 1: T["$Checks"] }[HasKey<T, "$Checks">];
-      },
-      "TDef"
-    >
-  : never;
+export type MakeTDef<T extends tf.Exact<tf.SetOptional<TDef, "$In" | "$Props" | "$Options" | "$Checks">, T>> = {
+  $Out: T["$Out"];
+  $In: "$In" extends keyof T ? T["$In"] : T["$Out"];
+  $TypeName: T["$TypeName"];
+  $Props: "$Props" extends keyof T ? T["$Props"] : null;
+  $Options: "$Options" extends keyof T ? T["$Options"] : TOptions;
+  $Checks: "$Checks" extends keyof T ? T["$Checks"] : null;
+};
 
-export type AnyBrandedTDef = BRANDED<TDef, "TDef">;
-
-export type TCtorDef<T extends AnyBrandedTDef> = {
-  readonly typeName: T["$TypeName"];
-  readonly options: T["$Options"];
-  readonly manifest?: AnyTManifest;
-} & (T["$Props"] extends null ? { readonly props?: null } : { readonly props: T["$Props"] }) &
-  (T["$Checks"] extends null ? { readonly checks?: null } : { readonly checks: T["$Checks"] });
-
-export type TRuntimeDef<T extends AnyBrandedTDef> = BRANDED<
-  {
-    readonly typeName: T["$TypeName"];
-    readonly props: T["$Props"];
-    readonly options: T["$Options"];
-    readonly manifest: T["$Manifest"];
-    readonly checks: T["$Checks"];
-  },
-  "__deepCloned"
->;
+export type AnyTDef = MakeTDef<TDef>;

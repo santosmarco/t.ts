@@ -1,5 +1,5 @@
 import type * as tf from "type-fest";
-import type { AnyBrandedTDef } from "./def";
+import type { AnyTType, InputOf, OutputOf } from "./types";
 import { ValueKind, isKindOf } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -18,22 +18,20 @@ export type DescriptiveWithValue<T> = tf.Simplify<
   }
 >;
 
-export type TManifest<O, I = O> = {
+export type TManifest<$O, $I = $O> = Descriptive & {
   readonly examples?: {
-    readonly in?: ReadonlyArray<DescriptiveWithValue<I>>;
-    readonly out?: ReadonlyArray<DescriptiveWithValue<O>>;
+    readonly in?: ReadonlyArray<DescriptiveWithValue<$I>>;
+    readonly out?: ReadonlyArray<DescriptiveWithValue<$O>>;
   };
   readonly tags?: ReadonlyArray<DescriptiveWithValue<string>>;
   readonly notes?: ReadonlyArray<DescriptiveWithValue<string>>;
   readonly unit?: DescriptiveWithValue<string>;
   readonly meta?: Readonly<Record<string, unknown>>;
-} & Descriptive;
-
-export type TRetrievableManifest<D extends AnyBrandedTDef> = D["$Manifest"] & {
-  readonly label?: string;
 };
 
-export type AnyTManifest = TManifest<any, any>;
+export type AnyTManifest = TManifest<any>;
+
+export type TManifestOf<T extends AnyTType> = TManifest<OutputOf<T>, InputOf<T>>;
 
 export function parseMaybeDescriptive(maybeDescriptive: string | DescriptiveWithValue<string>) {
   if (isKindOf(maybeDescriptive, ValueKind.String)) {

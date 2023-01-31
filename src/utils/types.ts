@@ -1,7 +1,9 @@
 import type * as tf from "type-fest";
+import type { tt } from "../types";
 
 export type BuiltIn =
   | { readonly [Symbol.toStringTag]: string }
+  | { readonly [tt]: true }
   | Date
   | Error
   | Function
@@ -70,6 +72,8 @@ export type EnforceOptionalTuple<T extends readonly unknown[]> = T extends reado
   ? []
   : T extends readonly [infer H, ...infer R]
   ? undefined extends H
+    ? [H?, ...EnforceOptionalTuple<R>]
+    : H extends undefined
     ? [H?, ...EnforceOptionalTuple<R>]
     : [H, ...EnforceOptionalTuple<R>]
   : never;

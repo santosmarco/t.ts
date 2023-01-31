@@ -34,3 +34,7 @@ export function conditionalOmitKindDeep<T extends object, V extends ValueKind>(x
 export function merge<A extends object, B extends object>(a: A, b: B): Merge<A, B> {
   return { ...a, ...b };
 }
+
+export function readonly<T extends object>(x: T): Readonly<T> {
+  return Object.freeze(x);
+}

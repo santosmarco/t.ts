@@ -58,6 +58,8 @@ const enUS: TLocale = {
         return `Expected a string ${issue.payload.type === "enforce" ? "matching" : "not matching"} the pattern ${
           issue.payload.name
         }`;
+      case TIssueKind.String.Alphanum:
+        return "Expected an alphanumeric string";
       case TIssueKind.String.Email:
         return "Expected a valid email address";
       case TIssueKind.String.Url:
@@ -66,6 +68,10 @@ const enUS: TLocale = {
         return "Expected a valid CUID";
       case TIssueKind.String.Uuid:
         return "Expected a valid UUID";
+      case TIssueKind.String.Hex:
+        return "Expected a valid hexadecimal string";
+      case TIssueKind.String.Base64:
+        return "Expected a valid base64 string";
 
       // Number
       case TIssueKind.Number.Integer:
@@ -135,9 +141,11 @@ const enUS: TLocale = {
 
       // Tuple
       case TIssueKind.Tuple.Length:
-        return `Expected ${issue.payload.max === null ? "at least" : "exactly"} ${humanizeNum(
-          issue.payload.min
-        )} ${pluralize(issue.payload.min, "item", "items")}, received ${humanizeNum(issue.payload.received)}`;
+        return `Expected ${
+          issue.payload.max === null || issue.payload.min === issue.payload.max
+            ? `${issue.payload.max ? "exactly" : "at least"} ${humanizeNum(issue.payload.min)}`
+            : `between ${humanizeNum(issue.payload.min)} and ${humanizeNum(issue.payload.max)}`
+        } ${pluralize(issue.payload.min, "item", "items")}, received ${humanizeNum(issue.payload.received)}`;
 
       // Buffer
       case TIssueKind.Buffer.Min:
@@ -184,6 +192,14 @@ const enUS: TLocale = {
       // Object
       case TIssueKind.Object.UnknownKey:
         return `Unknown key ${printValue(issue.payload.key, true)} found in ${ValueKind.Object}`;
+
+      // Function
+      case TIssueKind.Function.InvalidThisType:
+        return `Invalid \`this\` parameter type: ${printIssues(issue.payload.error.issues)}`;
+      case TIssueKind.Function.InvalidArguments:
+        return `Invalid arguments: ${printIssues(issue.payload.error.issues)}`;
+      case TIssueKind.Function.InvalidReturnType:
+        return `Invalid return type: ${printIssues(issue.payload.error.issues)}`;
 
       // Union
       case TIssueKind.Union.Invalid:

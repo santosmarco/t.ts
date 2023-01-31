@@ -2,7 +2,7 @@ import type * as tf from "type-fest";
 import type { TCheck, TCheckBase } from "./checks";
 import type { TError } from "./error";
 import type { TEnumValue, TLiteralValue } from "./types";
-import type { GetNestedValues, ReadonlyDeep } from "./utils";
+import type { GetNestedValues, ReadonlyDeep, _, __ } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TIssues                                                      */
@@ -26,6 +26,7 @@ export const TIssueKind = {
     Length: "string.length",
     Range: "string.range",
     Pattern: "string.pattern",
+    Alphanum: "string.alphanum",
     Email: "string.email",
     Url: "string.url",
     Cuid: "string.cuid",
@@ -112,14 +113,14 @@ export type TIssueBase<K extends TIssueKind> = {
   payload?: unknown;
 };
 
-export type MakeTIssue<K extends TIssueKind, P extends Record<string, unknown> | null = null> = tf.Simplify<
+export type MakeTIssue<K extends TIssueKind, P extends Record<string, unknown> | null = null> = __<
   ReadonlyDeep<
     TIssueBase<K> &
       (P extends null
         ? { payload?: never }
         : [tf.HasRequiredKeys<P & object>] extends [true]
-        ? { payload: { [K in keyof P as P[K] extends (...args: any[]) => any ? never : K]: P[K] } }
-        : { payload?: { [K in keyof P as P[K] extends (...args: any[]) => any ? never : K]: P[K] } })
+        ? { payload: { [K in keyof P as P[K] extends (...args: readonly any[]) => any ? never : K]: P[K] } }
+        : { payload?: { [K in keyof P as P[K] extends (...args: readonly any[]) => any ? never : K]: P[K] } })
   >
 >;
 
@@ -153,10 +154,7 @@ export namespace TIssue {
   export namespace Enum {
     export type Invalid = MakeTIssue<
       "enum.invalid",
-      {
-        expected: readonly TEnumValue[];
-        received: { value: TEnumValue; type?: never } | { value?: never; type: string };
-      }
+      { expected: TEnumValue[]; received: { value: TEnumValue; type?: never } | { value?: never; type: string } }
     >;
   }
 
@@ -166,10 +164,13 @@ export namespace TIssue {
     export type Length = FromTCheck<"string.length", TCheck.Length, { received: number }>;
     export type Range = FromTCheck<"string.range", TCheck.Range, { received: number }>;
     export type Pattern = FromTCheck<"string.pattern", TCheck.Pattern>;
+    export type Alphanum = FromTCheck<"string.alphanum", TCheck.Alphanum>;
     export type Email = FromTCheck<"string.email", TCheck.Email>;
     export type Url = FromTCheck<"string.url", TCheck.Url>;
     export type Cuid = FromTCheck<"string.cuid", TCheck.Cuid>;
     export type Uuid = FromTCheck<"string.uuid", TCheck.Uuid>;
+    export type Hex = FromTCheck<"string.hex", TCheck.Hex>;
+    export type Base64 = FromTCheck<"string.base64", TCheck.Base64>;
   }
 
   export namespace Number {
@@ -263,10 +264,13 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   | TIssue.String.Length
   | TIssue.String.Range
   | TIssue.String.Pattern
+  | TIssue.String.Alphanum
   | TIssue.String.Email
   | TIssue.String.Url
   | TIssue.String.Cuid
   | TIssue.String.Uuid
+  | TIssue.String.Hex
+  | TIssue.String.Base64
   // Number
   | TIssue.Number.Integer
   | TIssue.Number.Precision

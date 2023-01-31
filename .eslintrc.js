@@ -4,14 +4,7 @@ module.exports = {
     node: true,
     es2021: true,
   },
-  extends: [
-    "eslint/recommended",
-    "@typescript-eslint/recommended",
-    "@typescript-eslint/recommended-requiring-type-checking",
-    "xo",
-    "xo-typescript",
-    "prettier",
-  ],
+  extends: ["xo", "xo-typescript", "prettier"],
   parserOptions: {
     ecmaVersion: "latest",
     sourceType: "module",
@@ -26,6 +19,7 @@ module.exports = {
     complexity: "off",
     "@typescript-eslint/padding-line-between-statements": "off",
     "@typescript-eslint/consistent-type-assertions": "off",
+    "capitalized-comments": "off",
   },
   overrides: [
     {

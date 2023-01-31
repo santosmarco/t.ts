@@ -6,6 +6,10 @@ export function printValue(x: unknown, backticks?: boolean): string {
   return backticks ? `\`${printed}\`` : printed;
 }
 
+export function literalBool(x: boolean): "true" | "false" {
+  return x ? "true" : "false";
+}
+
 function stringify(x: unknown) {
   return String(x);
 }
