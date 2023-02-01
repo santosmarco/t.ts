@@ -1,5 +1,5 @@
 import type * as tf from "type-fest";
-import { TError, resolveErrorMaps } from "./error";
+import { AbortedParse, TError, resolveErrorMaps } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
 import { type ProcessedParseOptions } from "./options";
@@ -211,6 +211,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
       data: this.data,
       path: issuePath,
       label: this.common.label ?? generateIssueLabel(this.path, locale.defaultLabel),
+      hint: this.t.show(),
       ...(this.common.warnOnly && { warning: true }),
     };
 
@@ -266,6 +267,22 @@ export class TParseContext<T extends AnyTType = AnyTType> {
       ok: true,
       data: arguments.length > 0 ? data : this.data,
     };
+  }
+
+  async abortAsync(): Promise<never> {
+    return Promise.reject(new AbortedParse());
+  }
+
+  async resolveAsync(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  handleAsyncAbort(err: unknown) {
+    if (!(err instanceof AbortedParse) && isKindOf(err, ValueKind.Error)) {
+      throw err;
+    }
+
+    return this.return();
   }
 
   static createSync<T extends AnyTType>(

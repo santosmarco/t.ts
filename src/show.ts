@@ -1,12 +1,14 @@
+import chalk from "chalk";
 import {
   TEffectKind,
   TTypeName,
+  handleUnwrapUntil,
   type AnyTArray,
   type AnyTEffects,
   type AnyTTuple,
   type AnyTType,
   type AnyValidTType,
-  type TObjectShape,
+  type SomeTObject,
 } from "./types";
 import { assertNever, printValue } from "./utils";
 
@@ -39,9 +41,9 @@ export function show(t: AnyValidTType, needsParens = false, readonly = false): s
   if (t.isT(TTypeName.Null)) return "null";
   if (t.isT(TTypeName.Nullable)) return unionize([show(t.unwrapDeep()), "null"], needsParens);
   if (t.isT(TTypeName.Number)) return t.isInteger ? "integer" : "number";
-  if (t.isT(TTypeName.Object)) return showTObject(t.shape, readonly);
+  if (t.isT(TTypeName.Object)) return showTObject(t, readonly);
   if (t.isT(TTypeName.Optional)) return unionize([show(t.unwrapDeep()), "undefined"], needsParens);
-  if (t.isT(TTypeName.Pipeline)) return `Pipeline<${show(t.from)}, ${show(t.to)}>`;
+  if (t.isT(TTypeName.Pipeline)) return show(t.to);
   if (t.isT(TTypeName.Promise)) return `Promise<${show(t.unwrapDeep())}>`;
   if (t.isT(TTypeName.Readonly)) return show(t.unwrapDeep(), needsParens, true);
   if (t.isT(TTypeName.Record)) return `Record<${show(t.keys as AnyValidTType)}, ${show(t.values)}>`;
@@ -56,6 +58,23 @@ export function show(t: AnyValidTType, needsParens = false, readonly = false): s
   if (t.isT(TTypeName.Void)) return "void";
 
   assertNever(t);
+}
+
+export function colorize(hint: string) {
+  return hint
+    .replace(
+      /([<>([\s])(\w*)([\s\]),;<>])/g,
+      (_, $1: string, $2: string, $3: string) =>
+        `${$1}${$2 === "readonly" ? chalk.magenta($2) : chalk.italic.cyan($2)}${$3}`
+    )
+    .replace(/<(\w*)/g, `<${chalk.cyan("$1")}`)
+    .replace(/(\||\??:)/g, chalk.magenta("$1"))
+    .replace(/("\w*")/g, chalk.yellow("$1"))
+    .replace("; [x", `; [${chalk.italic.redBright("x")}`)
+    .replace(/^(\w*)|(\w*)$/, chalk.italic.cyan("$1"))
+    .replace(/(\w*)\[\]/, `${chalk.italic.cyan("$1")}[]`)
+    .replace(/\.(\w*)\[\]/, `.${chalk.italic.cyan("$1")}[]`)
+    .replace(/\./g, chalk.magenta("."));
 }
 
 function showTArray(t: AnyTArray, readonly: boolean) {
@@ -82,16 +101,32 @@ function showTEnum(values: ReadonlyArray<string | number>, needsParens: boolean)
   );
 }
 
-function showTObject(shape: TObjectShape, readonly: boolean) {
-  return `{ ${Object.entries(shape)
-    .map(([k, v]) => `${readonly ? "readonly " : ""}${k}${v.isOptional ? "?" : ""}: ${show(v)}`)
-    .join(", ")} }`;
+function showTObject(t: SomeTObject, readonly: boolean) {
+  return `{ ${Object.entries(t.shape)
+    .map(([k, v]) => {
+      const hasQuestionMark = t.props.strictMissingKeys
+        ? handleUnwrapUntil(v, [TTypeName.Optional]).isT(TTypeName.Optional)
+        : v.isOptional;
+      return `${readonly ? "readonly " : ""}${k}${hasQuestionMark ? "?" : ""}: ${show(v)}`;
+    })
+    .join("; ")}${
+    t.props.catchall
+      ? `; [x: string]: ${show(t.props.catchall)}`
+      : t.props.unknownKeys === "passthrough"
+      ? "; [x: string]: unknown"
+      : t.props.unknownKeys === "strict"
+      ? "; [x: string]: never"
+      : ""
+  } }`;
 }
 
 function showTTuple(t: AnyTTuple, readonly: boolean) {
-  return `${readonly ? "readonly " : ""}[${t.items.map((e) => show(e)).join(", ")}${
-    t.restType ? `, ...${show(t.restType, true)}[]` : ""
-  }]`;
+  return `${readonly ? "readonly " : ""}[${t.items
+    .map((e, i, items) => {
+      const hasQuestionMark = e.isOptional && items.slice(i + 1).every((e_) => e_.isOptional);
+      return `${show(e, hasQuestionMark)}${hasQuestionMark ? "?" : ""}`;
+    })
+    .join(", ")}${t.restType ? `, ...${show(t.restType, true)}[]` : ""}]`;
 }
 
 function showTUnion(values: readonly AnyTType[], needsParens: boolean) {
@@ -124,7 +159,7 @@ function unionize(values: string[] | Set<string>, needsParens: boolean): string 
     return unionize(unique, needsParens);
   }
 
-  const finalArr = [...unique];
+  const finalArr = [...unique].sort();
 
   if (needsParens) return `(${finalArr.join(" | ")})`;
 

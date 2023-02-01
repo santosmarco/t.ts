@@ -1,5 +1,5 @@
 import type * as tf from "type-fest";
-import { ValueKind, isKindOf, omit, type AtLeastOne } from "./utils";
+import { ValueKind, isKindOf, omit, type AtLeastOne, type utils } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TChecks                                                      */
@@ -88,15 +88,19 @@ export namespace TCheck {
   export type Capitalize = MakeTCheck<"capitalize">;
   export type Uncapitalize = MakeTCheck<"uncapitalize">;
 
-  export type Finite = MakeTCheck<"finite">;
   export type Integer = MakeTCheck<"integer", { strict: boolean }>;
+  export type Precision = MakeTCheck<"precision", { value: number; inclusive: boolean; strict: boolean }>;
   export type Multiple = MakeTCheck<"multiple", { value: number }>;
   export type Port = MakeTCheck<"port">;
-  export type Precision = MakeTCheck<"precision", { value: number; inclusive: boolean; strict: boolean }>;
   export type Safe = MakeTCheck<"safe">;
+  export type Finite = MakeTCheck<"finite">;
 
-  export type MaxKeys = MakeTCheck<"max_keys", { value: number; inclusive: boolean }>;
   export type MinKeys = MakeTCheck<"min_keys", { value: number; inclusive: boolean }>;
+  export type MaxKeys = MakeTCheck<"max_keys", { value: number; inclusive: boolean }>;
+
+  export type Options<P extends Record<string, unknown> | null = null> = utils.Simplify<
+    Readonly<({ message?: string } & (P extends null ? unknown : P)) | string>
+  >;
 }
 
 export function parseSimpleCheck<K extends TCheckKind>(kind: K, options: { message?: string } | string | undefined) {

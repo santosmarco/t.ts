@@ -2,7 +2,7 @@ import type * as tf from "type-fest";
 import type { TCheck, TCheckBase } from "./checks";
 import type { TError } from "./error";
 import type { TEnumValue, TLiteralValue } from "./types";
-import type { GetNestedValues, ReadonlyDeep, _, __ } from "./utils";
+import type { GetNestedValues, utils } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TIssues                                                      */
@@ -83,7 +83,8 @@ export const TIssueKind = {
     InvalidKey: "map.invalid_key",
   },
   Object: {
-    UnknownKey: "object.unknown_key",
+    UnknownKeys: "object.unknown_keys",
+    MissingKeys: "object.missing_keys",
   },
   Function: {
     InvalidThisType: "function.invalid_this_type",
@@ -109,12 +110,13 @@ export type TIssueBase<K extends TIssueKind> = {
   path: Array<string | number>;
   label: string;
   message: string;
+  hint: string;
   warning?: boolean;
   payload?: unknown;
 };
 
-export type MakeTIssue<K extends TIssueKind, P extends Record<string, unknown> | null = null> = __<
-  ReadonlyDeep<
+export type MakeTIssue<K extends TIssueKind, P extends Record<string, unknown> | null = null> = utils.SimplifyDeep<
+  utils.ReadonlyDeep<
     TIssueBase<K> &
       (P extends null
         ? { payload?: never }
@@ -227,7 +229,8 @@ export namespace TIssue {
   }
 
   export namespace Object {
-    export type UnknownKey = MakeTIssue<"object.unknown_key", { key: PropertyKey }>;
+    export type UnknownKeys = MakeTIssue<"object.unknown_keys", { keys: PropertyKey[] }>;
+    export type MissingKeys = MakeTIssue<"object.missing_keys", { keys: string[] }>;
   }
 
   export namespace Function {
@@ -307,7 +310,8 @@ export type TIssue<K extends TIssueKind = TIssueKind> = Extract<
   // Map
   | TIssue.Map.InvalidKey
   // Object
-  | TIssue.Object.UnknownKey
+  | TIssue.Object.UnknownKeys
+  | TIssue.Object.MissingKeys
   // Function
   | TIssue.Function.InvalidThisType
   | TIssue.Function.InvalidArguments

@@ -15,7 +15,7 @@ import {
   type TCheck,
 } from "./checks";
 import type { AnyTDef, MakeTDef } from "./def";
-import type { TError, TErrorMap, TFlattenedErrorOf, TFormattedErrorOf } from "./error";
+import { type TError, type TErrorMap, type TFlattenedErrorOf, type TFormattedErrorOf } from "./error";
 import { TGlobal } from "./global";
 import { TIssueKind } from "./issues";
 import { parseMaybeDescriptive, type AnyTManifest, type DescriptiveWithValue, type TManifestOf } from "./manifest";
@@ -35,8 +35,8 @@ import {
   type TParseResultOf,
   type TParseResultSyncOf,
 } from "./parse";
-import { show } from "./show";
-import { isNullable, isOptional, isReadonly } from "./spec";
+import { colorize, show } from "./show";
+import { isNullable, isOptional, isReadonly, type TSpec } from "./spec";
 import {
   ValueKind,
   assertNever,
@@ -47,23 +47,15 @@ import {
   kindOf,
   literalBool,
   merge,
-  omit,
-  pick,
-  readonly,
   tail,
-  type AtLeastOne,
+  utils,
   type AtLeastTwo,
-  type BRANDED,
-  type BuiltIn,
-  type EnforceOptional,
   type EnforceOptionalTuple,
   type FilterOut,
   type Merge,
   type ReadonlyFlat,
   type Try,
   type UnionToTuple,
-  type _,
-  type __,
 } from "./utils";
 
 export const TTypeName = {
@@ -182,12 +174,13 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
         readonly manifest?: AnyTManifest;
       }
   ) {
-    const { typeName, props = {}, checks = [], options, manifest = {} } = def;
+    const { typeName, props = null, checks = null, options, manifest = {} } = def;
 
     this._def = cloneDeep({ typeName, props, checks, options, manifest });
 
-    this.show = this.show.bind(this);
     this.clone = this.clone.bind(this);
+    this.show = this.show.bind(this);
+    this.describe = this.describe.bind(this);
 
     // Parsing
     this._parse = this._parse.bind(this);
@@ -245,6 +238,10 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
 
   /* ---------------------------------------------------------------------------------------------------------------- */
 
+  abstract get _spec(): TSpec;
+
+  /* ---------------------------------------------------------------------------------------------------------------- */
+
   get typeName(): Def["$TypeName"] {
     return this._def.typeName;
   }
@@ -261,18 +258,29 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return this._def.options;
   }
 
-  get manifest(): TManifestOf<this> {
-    return this._def.manifest;
+  get manifest(): TManifestOf<this> & this["_spec"] {
+    return { ...this._def.manifest, ...this._spec };
   }
 
   /* ---------------------------------------------------------------------------------------------------------------- */
 
-  show(): string {
-    return show(this as AnyValidTType);
-  }
-
   clone(): this {
     return this._construct();
+  }
+
+  show(options?: { readonly colors?: boolean }): string {
+    const hint = show(this as AnyValidTType);
+    return options?.colors ? colorize(hint) : hint;
+  }
+
+  describe() {
+    return {
+      typeName: this.typeName,
+      props: this.props,
+      checks: this.checks,
+      options: this.options,
+      manifest: this.manifest,
+    };
   }
 
   /* ---------------------------------------------------------------------------------------------------------------- */
@@ -362,11 +370,11 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return this.or(this.promise());
   }
 
-  or<T extends AtLeastOne<AnyTType>>(...types: T): TUnion<[this, ...T]> {
+  or<T extends utils.AtLeastOne<AnyTType>>(...types: T): TUnion<[this, ...T]> {
     return TUnion._create([this, ...types], pickTransferrableOptions(this.options));
   }
 
-  and<T extends AtLeastOne<AnyTType>>(...types: T): TIntersection<[this, ...T]> {
+  and<T extends utils.AtLeastOne<AnyTType>>(...types: T): TIntersection<[this, ...T]> {
     return TIntersection._create([this, ...types], pickTransferrableOptions(this.options));
   }
 
@@ -424,7 +432,7 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
 
   /* ---------------------------------------------------------------------------------------------------------------- */
 
-  abortEarly(enabled = true) {
+  abortEarly(enabled = true): this {
     return this._construct({ ...this._def, options: { ...this._def.options, abortEarly: enabled } });
   }
 
@@ -432,15 +440,15 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return this._construct({ ...this._def, options: { ...this._def.options, label } });
   }
 
-  errorMap(errorMap: TErrorMap) {
+  errorMap(errorMap: TErrorMap): this {
     return this._construct({ ...this._def, options: { ...this._def.options, schemaErrorMap: errorMap } });
   }
 
-  warnOnly(enabled = true) {
+  warnOnly(enabled = true): this {
     return this._construct({ ...this._def, options: { ...this._def.options, warnOnly: enabled } });
   }
 
-  messages(messages: this["options"]["messages"], options = { overwrite: false }) {
+  messages(messages: this["options"]["messages"], options = { overwrite: false }): this {
     return this._construct({
       ...this._def,
       options: {
@@ -466,8 +474,8 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
 
   examples(
     examples: tf.RequireAtLeastOne<{
-      in: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<Def["$In"]>>>;
-      out: MaybeWithOverride<AtLeastOne<DescriptiveWithValue<Def["$Out"]>>>;
+      in: MaybeWithTOverride<utils.AtLeastOne<DescriptiveWithValue<Def["$In"]>>>;
+      out: MaybeWithTOverride<utils.AtLeastOne<DescriptiveWithValue<Def["$Out"]>>>;
     }>
   ): this {
     const currExamplesIn = this._def.manifest.examples?.in ?? [];
@@ -489,28 +497,28 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     });
   }
 
-  tags(...tags: MaybeWithOverride<AtLeastOne<string | DescriptiveWithValue<string>>>) {
+  tags(...tags: MaybeWithTOverride<utils.AtLeastOne<string | DescriptiveWithValue<string>>>): this {
     const currTags = this._def.manifest.tags ?? [];
     const updatedTags =
       tags[0] === TMarkers.override ? tail(tags) : [...currTags, ...tags.map((t) => parseMaybeDescriptive(t))];
     return this._construct({ ...this._def, manifest: { ...this._def.manifest, tags: updatedTags } });
   }
 
-  notes(...notes: MaybeWithOverride<AtLeastOne<string | DescriptiveWithValue<string>>>) {
+  notes(...notes: MaybeWithTOverride<utils.AtLeastOne<string | DescriptiveWithValue<string>>>): this {
     const currNotes = this._def.manifest.tags ?? [];
     const updatedNotes =
       notes[0] === TMarkers.override ? tail(notes) : [...currNotes, ...notes.map((n) => parseMaybeDescriptive(n))];
     return this._construct({ ...this._def, manifest: { ...this._def.manifest, notes: updatedNotes } });
   }
 
-  unit(unit: string | DescriptiveWithValue<string>) {
+  unit(unit: string | DescriptiveWithValue<string>): this {
     return this._construct({
       ...this._def,
       manifest: { ...this._def.manifest, unit: typeof unit === "string" ? { value: unit } : unit },
     });
   }
 
-  meta(meta: Record<string, unknown>, options = { overwrite: false }) {
+  meta(meta: Record<string, unknown>, options = { overwrite: false }): this {
     return this._construct({
       ...this._def,
       manifest: { ...this._def.manifest, meta: options.overwrite ? meta : { ...this._def.manifest.meta, ...meta } },
@@ -519,11 +527,11 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
 
   /* ---------------------------------------------------------------------------------------------------------------- */
 
-  get isOptional(): boolean {
+  get isOptional(): this["_spec"]["optional"] {
     return isOptional(this);
   }
 
-  get isNullable(): boolean {
+  get isNullable(): this["_spec"]["nullable"] {
     return isNullable(this);
   }
 
@@ -535,11 +543,11 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return !this.isOptional;
   }
 
-  get isReadonly(): boolean {
+  get isReadonly(): this["_spec"]["readonly"] {
     return isReadonly(this);
   }
 
-  isT<T extends AtLeastOne<TTypeName>>(...typeNames: T): this is TTypeNameMap<T[number]> {
+  isT<T extends utils.AtLeastOne<TTypeName>>(...typeNames: T): this is TTypeNameMap<T[number]> {
     return typeNames.includes(this._def.typeName);
   }
 
@@ -547,7 +555,7 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
 
   protected _addCheck(
     check: Exclude<Def["$Checks"], null>[number],
-    options?: { unique?: boolean; remove?: AtLeastOne<Exclude<Def["$Checks"], null>[number]["kind"]> }
+    options?: { unique?: boolean; remove?: utils.AtLeastOne<Exclude<Def["$Checks"], null>[number]["kind"]> }
   ) {
     let self = this.clone();
 
@@ -562,7 +570,7 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return self._construct({ ...this._def, checks: [...(this._def.checks ?? []), check] });
   }
 
-  protected _removeChecks(...checks: AtLeastOne<Exclude<Def["$Checks"], null>[number]["kind"]>) {
+  protected _removeChecks(...checks: utils.AtLeastOne<Exclude<Def["$Checks"], null>[number]["kind"]>) {
     return this._construct({
       ...this._def,
       checks: (this._def.checks ?? []).filter((check) => !checks.includes(check.kind)),
@@ -588,6 +596,15 @@ export type AnyValidTType = TTypeNameMap;
 export type OutputOf<T> = T extends { readonly $O: infer U } ? U : never;
 export type InputOf<T> = T extends { readonly $I: infer U } ? U : never;
 
+/* -------------------------------------------------- TUnwrappable -------------------------------------------------- */
+
+export type TUnwrappable<T extends AnyTType, TN extends TTypeName> = {
+  readonly underlying: T;
+  unwrap(): T;
+  unwrapDeep(): UnwrapDeep<T, TN>;
+  modify<U extends AnyTType>(fn: (underlying: T) => U): TUnwrappable<U, TN>;
+};
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                        TAny                                                        */
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -598,6 +615,14 @@ export type TAnyDef = MakeTDef<{
 }>;
 
 export class TAny extends TType<TAnyDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: true,
+      nullable: true,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.return(ctx.data);
   }
@@ -617,6 +642,14 @@ export type TUnknownDef = MakeTDef<{
 }>;
 
 export class TUnknown extends TType<TUnknownDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: true,
+      nullable: true,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.return(ctx.data);
   }
@@ -639,6 +672,14 @@ export type TNeverDef = MakeTDef<{
 }>;
 
 export class TNever extends TType<TNeverDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx
       .addIssue({ kind: TIssueKind.Base.Forbidden }, this.options.messages?.[TIssueKind.Base.Forbidden])
@@ -660,6 +701,14 @@ export type TUndefinedDef = MakeTDef<{
 }>;
 
 export class TUndefined extends TType<TUndefinedDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: true,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
       ? ctx.return(ctx.data)
@@ -681,6 +730,14 @@ export type TVoidDef = MakeTDef<{
 }>;
 
 export class TVoid extends TType<TVoidDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: true,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
       ? ctx.return(ctx.data)
@@ -702,6 +759,14 @@ export type TNullDef = MakeTDef<{
 }>;
 
 export class TNull extends TType<TNullDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: true,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Null)
       ? ctx.return(ctx.data)
@@ -767,6 +832,14 @@ const base64Rx = {
 } as const;
 
 export class TString<Co extends TStringCoercion = false> extends TType<TStringDef<Co>> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (this.props.coercion) {
       ctx.setData(String(ctx.data));
@@ -897,36 +970,28 @@ export class TString<Co extends TStringCoercion = false> extends TType<TStringDe
     return new TString<C>({ ...this._def, props: { ...this._def.props, coercion: value } });
   }
 
-  min(value: number, options?: { inclusive?: boolean; message?: string } | string): this {
+  min(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
     return this._addCheck(parseMinCheck(value, options));
   }
 
-  max(value: number, options?: { inclusive?: boolean; message?: string } | string): this {
+  max(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
     return this._addCheck(parseMaxCheck(value, options));
   }
 
-  length(value: number, options?: { message?: string } | string): this {
+  length(value: number, options?: TCheck.Options): this {
     const opts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
     return this._addCheck({ kind: TCheckKind.Length, value, message: opts.message });
   }
 
-  range(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  range(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this._addCheck(parseRangeCheck(min, max, options));
   }
 
-  between(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  between(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this.range(min, max, options);
   }
 
-  pattern(regex: RegExp, options?: { type?: "disallow" | "enforce"; name?: string; message?: string } | string): this {
+  pattern(regex: RegExp, options?: TCheck.Options<{ type?: "disallow" | "enforce"; name?: string }>): this {
     const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
     return this._addCheck({
       kind: TCheckKind.Pattern,
@@ -937,53 +1002,53 @@ export class TString<Co extends TStringCoercion = false> extends TType<TStringDe
     });
   }
 
-  regex(pattern: RegExp, options?: { type?: "disallow" | "enforce"; name?: string; message?: string } | string): this {
+  regex(pattern: RegExp, options?: TCheck.Options<{ type?: "disallow" | "enforce"; name?: string }>): this {
     return this.pattern(pattern, options);
   }
 
-  enforce(pattern: RegExp, options?: { name?: string; message?: string } | string): this {
+  enforce(pattern: RegExp, options?: TCheck.Options<{ name?: string }>): this {
     return this.pattern(pattern, {
       ...(isKindOf(options, ValueKind.String) ? { message: options } : options),
       type: "enforce",
     });
   }
 
-  disallow(pattern: RegExp, options?: { name?: string; message?: string } | string): this {
+  disallow(pattern: RegExp, options?: TCheck.Options<{ name?: string }>): this {
     return this.pattern(pattern, {
       ...(isKindOf(options, ValueKind.String) ? { message: options } : options),
       type: "disallow",
     });
   }
 
-  alphanumeric(options?: { message?: string } | string): this {
+  alphanumeric(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Alphanum, options));
   }
 
-  alphanum(options?: { message?: string } | string): this {
+  alphanum(options?: TCheck.Options): this {
     return this.alphanumeric(options);
   }
 
-  email(options?: { message?: string } | string): this {
+  email(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Email, options));
   }
 
-  url(options?: { message?: string } | string): this {
+  url(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Url, options));
   }
 
-  cuid(options?: { message?: string } | string): this {
+  cuid(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Cuid, options));
   }
 
-  uuid(options?: { message?: string } | string): this {
+  uuid(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Uuid, options));
   }
 
-  hex(options?: { message?: string } | string): this {
+  hex(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Hex, options));
   }
 
-  base64(options?: { paddingRequired?: boolean; urlSafe?: boolean; message?: string } | string): this {
+  base64(options?: TCheck.Options<{ paddingRequired?: boolean; urlSafe?: boolean }>): this {
     const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
     return this._addCheck({
       kind: TCheckKind.Base64,
@@ -1071,7 +1136,7 @@ export type AnyTString = TString<TStringCoercion>;
 /*                                                       TNumber                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TNumberCoercion = boolean | AtLeastOne<"string" | "bigint">;
+export type TNumberCoercion = boolean | utils.AtLeastOne<"string" | "bigint">;
 export type TNumberCasting = false | "string" | "bigint";
 
 export type TNumberDef<Co extends TNumberCoercion, Ca extends TNumberCasting> = MakeTDef<{
@@ -1112,6 +1177,14 @@ function validatePrecision(data: number, check: { value: number; inclusive: bool
 export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasting = false> extends TType<
   TNumberDef<Co, Ca>
 > {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     const { coercion, casting } = this.props;
 
@@ -1216,7 +1289,7 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
     return new TNumber<Co, C>({ ...this._def, props: { ...this._def.props, casting: value } });
   }
 
-  integer(options?: { strict?: boolean; message?: string } | string): this {
+  integer(options?: TCheck.Options<{ strict?: boolean }>): this {
     const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
     return this._addCheck(
       { kind: TCheckKind.Integer, strict: parsedOpts.strict ?? true, message: parsedOpts.message },
@@ -1224,11 +1297,11 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
     );
   }
 
-  int(options?: { strict?: boolean; message?: string } | string): this {
+  int(options?: TCheck.Options<{ strict?: boolean }>): this {
     return this.integer(options);
   }
 
-  precision(value: number, options?: { inclusive?: boolean; strict?: boolean; message?: string } | string): this {
+  precision(value: number, options?: TCheck.Options<{ inclusive?: boolean; strict?: boolean }>): this {
     const parsedOpts = isKindOf(options, ValueKind.String) ? { message: options } : { ...options };
     return this._addCheck(
       {
@@ -1242,75 +1315,67 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
     );
   }
 
-  min(value: number, options?: { inclusive?: boolean; message?: string } | string): this {
+  min(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
     return this._addCheck(parseMinCheck(value, options));
   }
 
-  gt(value: number, options?: { message?: string } | string): this {
+  gt(value: number, options?: TCheck.Options): this {
     return this.min(value, {
       inclusive: false,
       message: isKindOf(options, ValueKind.String) ? options : options?.message,
     });
   }
 
-  gte(value: number, options?: { message?: string } | string): this {
+  gte(value: number, options?: TCheck.Options): this {
     return this.min(value, {
       inclusive: true,
       message: isKindOf(options, ValueKind.String) ? options : options?.message,
     });
   }
 
-  positive(options?: { message?: string } | string): this {
+  positive(options?: TCheck.Options): this {
     return this.min(0, { inclusive: false, message: isKindOf(options, ValueKind.String) ? options : options?.message });
   }
 
-  nonnegative(options?: { message?: string } | string): this {
+  nonnegative(options?: TCheck.Options): this {
     return this.min(0, { inclusive: true, message: isKindOf(options, ValueKind.String) ? options : options?.message });
   }
 
-  max(value: number, options?: { inclusive?: boolean; message?: string } | string) {
+  max(value: number, options?: TCheck.Options<{ inclusive?: boolean }>) {
     return this._addCheck(parseMaxCheck(value, options));
   }
 
-  lt(value: number, options?: { message?: string } | string): this {
+  lt(value: number, options?: TCheck.Options): this {
     return this.max(value, {
       inclusive: false,
       message: isKindOf(options, ValueKind.String) ? options : options?.message,
     });
   }
 
-  lte(value: number, options?: { message?: string } | string): this {
+  lte(value: number, options?: TCheck.Options): this {
     return this.max(value, {
       inclusive: true,
       message: isKindOf(options, ValueKind.String) ? options : options?.message,
     });
   }
 
-  negative(options?: { message?: string } | string): this {
+  negative(options?: TCheck.Options): this {
     return this.max(0, { inclusive: false, message: isKindOf(options, ValueKind.String) ? options : options?.message });
   }
 
-  nonpositive(options?: { message?: string } | string): this {
+  nonpositive(options?: TCheck.Options): this {
     return this.max(0, { inclusive: true, message: isKindOf(options, ValueKind.String) ? options : options?.message });
   }
 
-  range(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  range(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this._addCheck(parseRangeCheck(min, max, options));
   }
 
-  between(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  between(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this.range(min, max, options);
   }
 
-  multiple(value: number, options?: { message?: string } | string): this {
+  multiple(value: number, options?: TCheck.Options): this {
     return this._addCheck({
       kind: TCheckKind.Multiple,
       value,
@@ -1318,15 +1383,15 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
     });
   }
 
-  step(value: number, options?: { message?: string } | string): this {
+  step(value: number, options?: TCheck.Options): this {
     return this.multiple(value, options);
   }
 
-  port(options?: { message?: string } | string): this {
+  port(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Port, options));
   }
 
-  safe(options?: { message?: string } | string): this {
+  safe(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Safe, options), { unique: true });
   }
 
@@ -1334,7 +1399,7 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
     return this._removeChecks(TCheckKind.Safe);
   }
 
-  finite(options?: { message?: string } | string): this {
+  finite(options?: TCheck.Options): this {
     return this._addCheck(parseSimpleCheck(TCheckKind.Finite, options), { unique: true });
   }
 
@@ -1415,6 +1480,14 @@ export type TNaNDef = MakeTDef<{
 }>;
 
 export class TNaN extends TType<TNaNDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.NaN)
       ? ctx.return(ctx.data)
@@ -1436,6 +1509,14 @@ export type TBigIntDef = MakeTDef<{
 }>;
 
 export class TBigInt extends TType<TBigIntDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.BigInt)) {
       return ctx.invalidType({ expected: ValueKind.BigInt }).return();
@@ -1459,6 +1540,14 @@ export type TBooleanDef = MakeTDef<{
 }>;
 
 export class TBoolean extends TType<TBooleanDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Boolean)) {
       return ctx.invalidType({ expected: ValueKind.Boolean }).return();
@@ -1488,6 +1577,14 @@ export type TTrueDef = MakeTDef<{
 }>;
 
 export class TTrue extends TType<TTrueDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.data === true ? ctx.return(ctx.data) : ctx.invalidType({ expected: ValueKind.True }).return();
   }
@@ -1505,6 +1602,14 @@ export type TFalseDef = MakeTDef<{
 }>;
 
 export class TFalse extends TType<TFalseDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return ctx.data === false ? ctx.return(ctx.data) : ctx.invalidType({ expected: ValueKind.False }).return();
   }
@@ -1524,6 +1629,14 @@ export type TDateDef = MakeTDef<{
 }>;
 
 export class TDate extends TType<TDateDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Date)) {
       return ctx.invalidType({ expected: ValueKind.Date }).return();
@@ -1547,6 +1660,14 @@ export type TSymbolDef = MakeTDef<{
 }>;
 
 export class TSymbol extends TType<TSymbolDef> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Symbol)
       ? ctx.return(ctx.data)
@@ -1574,6 +1695,14 @@ export type TLiteralDef<T extends TLiteralValue> = MakeTDef<{
 }>;
 
 export class TLiteral<T extends TLiteralValue> extends TType<TLiteralDef<T>> {
+  get _spec() {
+    return utils.asConst({
+      optional: this.props.value === undefined,
+      nullable: this.props.value === null,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     const kindOfValue = kindOf(this.value);
     const kindOfData = kindOf(ctx.data);
@@ -1616,7 +1745,7 @@ export type AnyTLiteral = TLiteral<TLiteralValue>;
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export type TEnumValue = string | number;
-export type TEnumValues = AtLeastOne<TEnumValue>;
+export type TEnumValues = utils.AtLeastOne<TEnumValue>;
 
 export type EnumLike = { [x: string]: string | number; [y: number]: string };
 
@@ -1642,10 +1771,7 @@ function parseEnum<T extends AnyTType>(
   if (!includes(values, ctx.data)) {
     if (validKinds.includes(kindOfData)) {
       ctx.addIssue(
-        {
-          kind: TIssueKind.Enum.Invalid,
-          payload: { expected: values, received: { value: ctx.data as TEnumValue } },
-        },
+        { kind: TIssueKind.Enum.Invalid, payload: { expected: values, received: { value: ctx.data as TEnumValue } } },
         invalidMsg
       );
     } else {
@@ -1662,26 +1788,34 @@ function parseEnum<T extends AnyTType>(
 }
 
 export class TEnum<T extends readonly TEnumValue[]> extends TType<TEnumDef<T>> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return parseEnum(ctx, this.values, this.options.messages[TIssueKind.Enum.Invalid]);
   }
 
   get values(): Readonly<T> {
-    return readonly(this.props.values);
+    return utils.readonly(this.props.values);
   }
 
   get enum(): MakeEnum<T> {
-    return readonly(this.values.reduce((acc, v) => ({ ...acc, [v]: v }), {} as MakeEnum<T>));
+    return utils.readonly(this.values.reduce((acc, v) => ({ ...acc, [v]: v }), {})) as MakeEnum<T>;
   }
 
-  extract<U extends AtLeastOne<T[number]>>(values: U): TEnum<U> {
+  extract<U extends utils.AtLeastOne<T[number]>>(values: U): TEnum<U> {
     return new TEnum<U>({ ...this._def, props: { values } });
   }
 
-  exclude<U extends AtLeastOne<T[number]>>(
+  exclude<U extends utils.AtLeastOne<T[number]>>(
     values: U
   ): U["length"] extends T["length"] ? TNever : TEnum<FilterOut<T, U[number]>>;
-  exclude<U extends AtLeastOne<T[number]>>(values: U) {
+  exclude<U extends utils.AtLeastOne<T[number]>>(values: U) {
     const excluded = filterOut(this.values, values);
 
     if ((excluded as unknown[]).length <= 0) {
@@ -1700,7 +1834,7 @@ export class TEnum<T extends readonly TEnumValue[]> extends TType<TEnumDef<T>> {
   );
 
   private static _create<T extends EnumLike>(enum_: T, options?: TEnumOptions): TNativeEnum<T>;
-  private static _create<T extends string | number, U extends AtLeastOne<T>>(
+  private static _create<T extends string | number, U extends utils.AtLeastOne<T>>(
     values: U,
     options?: TEnumOptions
   ): TEnum<U>;
@@ -1739,6 +1873,14 @@ function getValidEnumValues(enum_: EnumLike) {
 }
 
 export class TNativeEnum<T extends EnumLike> extends TType<TNativeEnumDef<T>> {
+  get _spec() {
+    return utils.asConst({
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     const validValues = getValidEnumValues(this.enum);
     return parseEnum(ctx, validValues, this.options.messages[TIssueKind.Enum.Invalid]);
@@ -1749,7 +1891,7 @@ export class TNativeEnum<T extends EnumLike> extends TType<TNativeEnumDef<T>> {
   }
 
   get values(): Readonly<UnionToTuple<T[keyof T]>> {
-    return readonly(getValidEnumValues(this.enum) as UnionToTuple<T[keyof T]>);
+    return utils.readonly(getValidEnumValues(this.enum) as UnionToTuple<T[keyof T]>);
   }
 
   static create<T extends EnumLike>(enum_: T, options?: TEnumOptions): TNativeEnum<T> {
@@ -1848,6 +1990,17 @@ function finalizeArray<T extends AnyTType, U>(
 }
 
 export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many"> extends TType<TArrayDef<T, Card>> {
+  get _spec() {
+    return utils.asConst({
+      element: utils.extractProp(this.element, "manifest"),
+      minItems: this.minItems ?? null,
+      maxItems: this.maxItems ?? null,
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Array)) {
       return ctx.invalidType({ expected: ValueKind.Array }).return();
@@ -1913,13 +2066,13 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
           if (parsed.ok) {
             result[i] = parsed.data;
           } else if (ctx.common.abortEarly) {
-            return Promise.reject();
+            return ctx.abortAsync();
           }
-          return Promise.resolve();
+          return ctx.resolveAsync();
         })
       )
         .then(() => finalizeArray(ctx, result, postChecks))
-        .catch(() => ctx.return());
+        .catch((err) => ctx.handleAsyncAbort(err));
     }
 
     for (const [i, v] of entries) {
@@ -1942,11 +2095,11 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     return this.element;
   }
 
-  min(value: number, options?: { inclusive?: boolean; message?: string } | string): this {
+  min(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
     return this._addCheck(parseMinCheck(value, options));
   }
 
-  max(value: number, options?: { inclusive?: boolean; message?: string } | string): this {
+  max(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
     return this._addCheck(parseMaxCheck(value, options));
   }
 
@@ -1954,23 +2107,15 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     return this._addCheck({ kind: TCheckKind.Length, value, message: options?.message });
   }
 
-  range(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  range(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this._addCheck(parseRangeCheck(min, max, options));
   }
 
-  between(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  between(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this.range(min, max, options);
   }
 
-  nonempty(options?: { message?: string } | string): TArray<T, "atleastone"> {
+  nonempty(options?: TCheck.Options): TArray<T, "atleastone"> {
     const nonempty = this.min(1, {
       inclusive: true,
       message: isKindOf(options, ValueKind.String) ? options : options?.message,
@@ -1978,11 +2123,11 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     return new TArray<T, "atleastone">({ ...nonempty._def, props: { ...nonempty.props, cardinality: "atleastone" } });
   }
 
-  unique(comparator?: TArrayComparatorFn<T, boolean>, options?: { strict?: boolean; message?: string } | string): this;
-  unique(options?: { strict?: boolean; message?: string } | string): this;
+  unique(comparator?: TArrayComparatorFn<T, boolean>, options?: TCheck.Options<{ strict?: boolean }>): this;
+  unique(options?: TCheck.Options<{ strict?: boolean }>): this;
   unique(
-    comparatorOrOptions?: TArrayComparatorFn<T, boolean> | { strict?: boolean; message?: string } | string,
-    maybeOptions?: { strict?: boolean; message?: string } | string
+    comparatorOrOptions?: TArrayComparatorFn<T, boolean> | TCheck.Options<{ strict?: boolean }>,
+    maybeOptions?: TCheck.Options<{ strict?: boolean }>
   ): this {
     const comparator = isKindOf(comparatorOrOptions, ValueKind.Function) ? comparatorOrOptions : null;
     const options = isKindOf(comparatorOrOptions, ValueKind.Function) ? maybeOptions : comparatorOrOptions;
@@ -1996,11 +2141,11 @@ export class TArray<T extends AnyTType, Card extends TArrayCardinality = "many">
     });
   }
 
-  sort(comparator?: TArrayComparatorFn<T, number>, options?: { strict?: boolean; message?: string } | string): this;
-  sort(options?: { strict?: boolean; message?: string } | string): this;
-  sort(
-    comparatorOrOptions?: TArrayComparatorFn<T, number> | { strict?: boolean; message?: string } | string,
-    maybeOptions?: { strict?: boolean; message?: string } | string
+  sorted(comparator?: TArrayComparatorFn<T, number>, options?: TCheck.Options<{ strict?: boolean }>): this;
+  sorted(options?: TCheck.Options<{ strict?: boolean }>): this;
+  sorted(
+    comparatorOrOptions?: TArrayComparatorFn<T, number> | TCheck.Options<{ strict?: boolean }>,
+    maybeOptions?: TCheck.Options<{ strict?: boolean }>
   ): this {
     const comparator = isKindOf(comparatorOrOptions, ValueKind.Function) ? comparatorOrOptions : null;
     const options = isKindOf(comparatorOrOptions, ValueKind.Function) ? maybeOptions : comparatorOrOptions;
@@ -2136,19 +2281,19 @@ export class TTuple<T extends readonly AnyTType[], R extends AnyTType | null> ex
         data.map(async (v, i) => {
           const t = items[i] ?? rest;
           if (!t) {
-            return Promise.reject();
+            return ctx.abortAsync();
           }
           const parsed = await t._parseAsync(ctx.child(t, v, [i]));
           if (parsed.ok) {
             result[i] = parsed.data;
           } else if (ctx.common.abortEarly) {
-            return Promise.reject();
+            return ctx.abortAsync();
           }
-          return Promise.resolve();
+          return ctx.resolveAsync();
         })
       )
         .then(() => ctx.return(result as TTupleIO<T, R>))
-        .catch(() => ctx.return());
+        .catch((err) => ctx.handleAsyncAbort(err));
     }
 
     for (const [i, v] of data.entries()) {
@@ -2200,25 +2345,25 @@ export class TTuple<T extends readonly AnyTType[], R extends AnyTType | null> ex
     return this.items[this.items.length - 1] ?? TNever.create(pickTransferrableOptions(this.options));
   }
 
-  prepend<Head extends AtLeastOne<AnyTType>>(...head: Head): TTuple<[...Head, ...T], R> {
+  prepend<Head extends utils.AtLeastOne<AnyTType>>(...head: Head): TTuple<[...Head, ...T], R> {
     return new TTuple<[...Head, ...T], R>({
       ...this._def,
       props: { ...this._def.props, items: [...head, ...this.items] },
     });
   }
 
-  unshift<Head extends AtLeastOne<AnyTType>>(...head: Head): TTuple<[...Head, ...T], R> {
+  unshift<Head extends utils.AtLeastOne<AnyTType>>(...head: Head): TTuple<[...Head, ...T], R> {
     return this.prepend(...head);
   }
 
-  append<Tail extends AtLeastOne<AnyTType>>(...tail: Tail): TTuple<[...T, ...Tail], R> {
+  append<Tail extends utils.AtLeastOne<AnyTType>>(...tail: Tail): TTuple<[...T, ...Tail], R> {
     return new TTuple<[...T, ...Tail], R>({
       ...this._def,
       props: { ...this._def.props, items: [...this.items, ...tail] },
     });
   }
 
-  push<Tail extends AtLeastOne<AnyTType>>(...tail: Tail): TTuple<[...T, ...Tail], R> {
+  push<Tail extends utils.AtLeastOne<AnyTType>>(...tail: Tail): TTuple<[...T, ...Tail], R> {
     return this.append(...tail);
   }
 
@@ -2268,13 +2413,13 @@ export class TTuple<T extends readonly AnyTType[], R extends AnyTType | null> ex
     return this.restType ? null : this.items.length;
   }
 
-  static create<T extends AtLeastOne<AnyTType> | readonly [], R extends AnyTType | null>(
+  static create<T extends utils.AtLeastOne<AnyTType> | readonly [], R extends AnyTType | null>(
     items: T,
     rest: R,
     options?: TTupleOptions
   ): TTuple<T, R>;
-  static create<T extends AtLeastOne<AnyTType> | readonly []>(items: T, options?: TTupleOptions): TTuple<T, null>;
-  static create<T extends AtLeastOne<AnyTType> | readonly [], R extends AnyTType | null>(
+  static create<T extends utils.AtLeastOne<AnyTType> | readonly []>(items: T, options?: TTupleOptions): TTuple<T, null>;
+  static create<T extends utils.AtLeastOne<AnyTType> | readonly [], R extends AnyTType | null>(
     items: T,
     restOrOptions?: R | TTupleOptions,
     maybeOptions?: TTupleOptions
@@ -2305,6 +2450,17 @@ export type TSetDef<T extends AnyTType> = MakeTDef<{
 }>;
 
 export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
+  get _spec() {
+    return utils.asConst({
+      element: utils.extractProp(this.element, "manifest"),
+      minItems: this.minItems ?? null,
+      maxItems: this.maxItems ?? null,
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Set)) {
       return ctx.invalidType({ expected: ValueKind.Set }).return();
@@ -2367,13 +2523,13 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
           if (parsed.ok) {
             result.add(parsed.data);
           } else if (ctx.common.abortEarly) {
-            return Promise.reject();
+            return ctx.abortAsync();
           }
-          return Promise.resolve();
+          return ctx.resolveAsync();
         })
       )
         .then(() => ctx.return(result))
-        .catch(() => ctx.return());
+        .catch((err) => ctx.handleAsyncAbort(err));
     }
 
     for (const [i, v] of values.entries()) {
@@ -2396,11 +2552,11 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
     return this.element;
   }
 
-  min(value: number, options?: { inclusive?: boolean; message?: string } | string): this {
+  min(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
     return this._addCheck(parseMinCheck(value, options));
   }
 
-  max(value: number, options?: { inclusive?: boolean; message?: string } | string): this {
+  max(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
     return this._addCheck(parseMaxCheck(value, options));
   }
 
@@ -2408,19 +2564,11 @@ export class TSet<T extends AnyTType> extends TType<TSetDef<T>> {
     return this._addCheck({ kind: TCheckKind.Size, value, message: options?.message });
   }
 
-  range(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  range(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this._addCheck(parseRangeCheck(min, max, options));
   }
 
-  between(
-    min: number,
-    max: number,
-    options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string } | string
-  ): this {
+  between(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>): this {
     return this.range(min, max, options);
   }
 
@@ -2492,6 +2640,16 @@ export type TBufferDef = MakeTDef<{
 }>;
 
 export class TBuffer extends TType<TBufferDef> {
+  get _spec() {
+    return utils.asConst({
+      minBytes: this.minBytes ?? null,
+      maxBytes: this.maxBytes ?? null,
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Buffer)) {
       return ctx.invalidType({ expected: ValueKind.Buffer }).return();
@@ -2547,38 +2705,22 @@ export class TBuffer extends TType<TBufferDef> {
   }
 
   min(value: number, options?: { inclusive?: boolean; message?: string }) {
-    return this._addCheck({
-      kind: TCheckKind.Min,
-      value,
-      inclusive: options?.inclusive ?? true,
-      message: options?.message,
-    });
+    return this._addCheck(parseMinCheck(value, options));
   }
 
   max(value: number, options?: { inclusive?: boolean; message?: string }) {
-    return this._addCheck({
-      kind: TCheckKind.Max,
-      value,
-      inclusive: options?.inclusive ?? true,
-      message: options?.message,
-    });
+    return this._addCheck(parseMaxCheck(value, options));
   }
 
   length(value: number, options?: { message?: string }) {
     return this._addCheck({ kind: TCheckKind.Length, value, message: options?.message });
   }
 
-  range(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
-    return this._addCheck({
-      kind: TCheckKind.Range,
-      min,
-      max,
-      inclusive: options?.inclusive ?? "[]",
-      message: options?.message,
-    });
+  range(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>) {
+    return this._addCheck(parseRangeCheck(min, max, options));
   }
 
-  between(min: number, max: number, options?: { inclusive?: `${"[" | "("}${"]" | ")"}`; message?: string }) {
+  between(min: number, max: number, options?: TCheck.Options<{ inclusive?: `${"[" | "("}${"]" | ")"}` }>) {
     return this.range(min, max, options);
   }
 
@@ -2597,11 +2739,7 @@ export class TBuffer extends TType<TBufferDef> {
   }
 
   static create(options?: TOptions): TBuffer {
-    return new TBuffer({
-      typeName: TTypeName.Buffer,
-      checks: [],
-      options: processCreateOptions(options),
-    });
+    return new TBuffer({ typeName: TTypeName.Buffer, checks: [], options: processCreateOptions(options) });
   }
 }
 
@@ -2638,6 +2776,16 @@ function handleKeyTransformation(k: string | symbol) {
 }
 
 export class TRecord<K extends TRecordKeys, V extends AnyTType> extends TType<TRecordDef<K, V>> {
+  get _spec() {
+    return {
+      keys: utils.extractProp(this.props.keys, "manifest"),
+      values: utils.extractProp(this.props.values, "manifest"),
+      optional: false,
+      nullable: false,
+      readonly: false,
+    };
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Object)) {
       return ctx.invalidType({ expected: ValueKind.Object }).return();
@@ -2691,18 +2839,18 @@ export class TRecord<K extends TRecordKeys, V extends AnyTType> extends TType<TR
               this.options.messages[TIssueKind.Record.InvalidKey]
             );
             if (ctx.common.abortEarly) {
-              return Promise.reject();
+              return ctx.abortAsync();
             }
           } else if (parsedValue.ok) {
             result[parsedKey.data] = parsedValue.data;
           } else if (ctx.common.abortEarly) {
-            return Promise.reject();
+            return ctx.abortAsync();
           }
-          return Promise.resolve();
+          return ctx.resolveAsync();
         })
       )
         .then(() => ctx.return(result))
-        .catch(() => ctx.return());
+        .catch((err) => ctx.handleAsyncAbort(err));
     }
 
     for (const [k, v] of entries) {
@@ -2741,22 +2889,12 @@ export class TRecord<K extends TRecordKeys, V extends AnyTType> extends TType<TR
     return [this.keys, this.values];
   }
 
-  minKeys(value: number, options?: { inclusive?: boolean; message?: string }) {
-    return this._addCheck({
-      kind: TCheckKind.MinKeys,
-      value,
-      inclusive: options?.inclusive ?? true,
-      message: options?.message,
-    });
+  minKeys(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
+    return this._addCheck({ ...parseMinCheck(value, options), kind: TCheckKind.MinKeys });
   }
 
-  maxKeys(value: number, options?: { inclusive?: boolean; message?: string }) {
-    return this._addCheck({
-      kind: TCheckKind.MaxKeys,
-      value,
-      inclusive: options?.inclusive ?? true,
-      message: options?.message,
-    });
+  maxKeys(value: number, options?: TCheck.Options<{ inclusive?: boolean }>): this {
+    return this._addCheck({ ...parseMaxCheck(value, options), kind: TCheckKind.MaxKeys });
   }
 
   mapKeys<U extends TRecordKeys>(fn: (key: K) => U): TRecord<U, V> {
@@ -2817,6 +2955,16 @@ export type TMapDef<K extends AnyTType, V extends AnyTType> = MakeTDef<{
 }>;
 
 export class TMap<K extends AnyTType, V extends AnyTType> extends TType<TMapDef<K, V>> {
+  get _spec() {
+    return {
+      keys: utils.extractProp(this.props.keys, "manifest"),
+      values: utils.extractProp(this.props.values, "manifest"),
+      optional: false,
+      nullable: false,
+      readonly: false,
+    };
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Map)) {
       return ctx.invalidType({ expected: ValueKind.Map }).return();
@@ -2840,18 +2988,18 @@ export class TMap<K extends AnyTType, V extends AnyTType> extends TType<TMapDef<
               this.options.messages[TIssueKind.Map.InvalidKey]
             );
             if (ctx.common.abortEarly) {
-              return Promise.reject();
+              return ctx.abortAsync();
             }
           } else if (parsedValue.ok) {
             result.set(parsedKey.data, parsedValue.data);
           } else if (ctx.common.abortEarly) {
-            return Promise.reject();
+            return ctx.abortAsync();
           }
-          return Promise.resolve();
+          return ctx.resolveAsync();
         })
       )
         .then(() => ctx.return(result))
-        .catch(() => ctx.return());
+        .catch((err) => ctx.handleAsyncAbort(err));
     }
 
     for (const [k, v, i] of entries.map((e, i) => [...e, i] as const)) {
@@ -2928,9 +3076,24 @@ export type TObjectIO<
   S extends TObjectShape,
   U extends TObjectUnknownKeys | null,
   C extends AnyTType | null,
+  SMK extends boolean,
   IO extends "$O" | "$I" = "$O"
-> = __<
-  EnforceOptional<{ [K in keyof S]: S[K][IO] }> &
+> = utils.SimplifyDeep<
+  (SMK extends true
+    ? {
+        [K in keyof S as SMK extends true
+          ? UnwrapUntil<S[K], "TOptional"> extends AnyTOptional
+            ? K
+            : never
+          : K]?: S[K][IO];
+      } & {
+        [K in keyof S as SMK extends true
+          ? UnwrapUntil<S[K], "TOptional"> extends AnyTOptional
+            ? never
+            : K
+          : never]: S[K][IO];
+      }
+    : utils.EnforceOptional<{ [K in keyof S]: S[K][IO] }>) &
     (C extends AnyTType
       ? Record<string, C[IO]>
       : U extends "passthrough"
@@ -2940,39 +3103,81 @@ export type TObjectIO<
       : unknown)
 >;
 
-export type TObjectOptions = TOptions<{ issueKinds: ["object.unknown_key"] }>;
+export type TObjectOptions = TOptions<{ issueKinds: ["object.unknown_keys", "object.missing_keys"] }>;
 
 export type TObjectDef<
   S extends TObjectShape,
   U extends TObjectUnknownKeys | null,
-  C extends AnyTType | null
+  C extends AnyTType | null,
+  SMK extends boolean
 > = MakeTDef<{
-  $Out: TObjectIO<S, U, C>;
-  $In: TObjectIO<S, U, C, "$I">;
+  $Out: TObjectIO<S, U, C, SMK>;
+  $In: TObjectIO<S, U, C, SMK, "$I">;
   $TypeName: "TObject";
-  $Props: { readonly shape: S; readonly unknownKeys: U; readonly catchall: C };
+  $Props: {
+    readonly shape: S;
+    readonly unknownKeys: U;
+    readonly catchall: C;
+    readonly strictMissingKeys: SMK;
+  };
   $Options: TObjectOptions;
 }>;
 
 export class TObject<
   S extends TObjectShape,
   U extends TObjectUnknownKeys | null = "strip",
-  C extends AnyTType | null = null
-> extends TType<TObjectDef<S, U, C>> {
+  C extends AnyTType | null = null,
+  SMK extends boolean = false
+> extends TType<TObjectDef<S, U, C, SMK>> {
+  get _spec() {
+    return utils.asConst({
+      shape: utils.readonly(utils.mapProp(this.props.shape, "manifest")),
+      unknownKeys: this.props.unknownKeys,
+      catchall: this.props.catchall,
+      optional: false,
+      nullable: false,
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Object)) {
       return ctx.invalidType({ expected: ValueKind.Object }).return();
     }
 
-    const { shape, unknownKeys, catchall } = this.props;
+    const { shape, unknownKeys, catchall, strictMissingKeys } = this.props;
     const data = ctx.data as Record<string | symbol, unknown>;
 
     const extraKeys: Array<string | symbol> = [];
     if (catchall ?? unknownKeys !== "strip") {
-      for (const [k] of Reflect.ownKeys(ctx.data).map((k) => [k, data[k]] as const)) {
+      for (const k of Reflect.ownKeys(ctx.data)) {
         if (!(k in shape)) {
           extraKeys.push(k);
         }
+      }
+    }
+
+    if (unknownKeys === "strict") {
+      ctx.addIssue(
+        { kind: TIssueKind.Object.UnknownKeys, payload: { keys: extraKeys } },
+        this.options.messages[TIssueKind.Object.UnknownKeys]
+      );
+      if (ctx.common.abortEarly) {
+        return ctx.return();
+      }
+    }
+
+    const missingKeys = Object.keys(shape).filter(
+      (k) => !handleUnwrapUntil(shape[k as keyof S], [TTypeName.Optional]).isT(TTypeName.Optional) && !(k in data)
+    );
+
+    if (strictMissingKeys && missingKeys.length > 0) {
+      ctx.addIssue(
+        { kind: TIssueKind.Object.MissingKeys, payload: { keys: missingKeys } },
+        this.options.messages[TIssueKind.Object.MissingKeys]
+      );
+      if (ctx.common.abortEarly) {
+        return ctx.return();
       }
     }
 
@@ -2987,9 +3192,9 @@ export class TObject<
               result[k] = parsed.data;
             }
           } else if (ctx.common.abortEarly) {
-            return Promise.reject();
+            return ctx.abortAsync();
           }
-          return Promise.resolve();
+          return ctx.resolveAsync();
         })
       )
         .then(async () =>
@@ -3000,25 +3205,17 @@ export class TObject<
                 if (parsed.ok) {
                   result[k] = parsed.data;
                 } else if (ctx.common.abortEarly) {
-                  return Promise.reject();
+                  return ctx.abortAsync();
                 }
               } else if (unknownKeys === "passthrough") {
                 result[k] = data[k];
-              } else if (unknownKeys === "strict") {
-                ctx.addIssue(
-                  { kind: TIssueKind.Object.UnknownKey, payload: { key: k } },
-                  this.options.messages[TIssueKind.Object.UnknownKey]
-                );
-                if (ctx.common.abortEarly) {
-                  return Promise.reject();
-                }
               }
-              return Promise.resolve();
+              return ctx.resolveAsync();
             })
           )
         )
-        .then(() => ctx.return(result as TObjectIO<S, U, C>))
-        .catch(() => ctx.return());
+        .then(() => ctx.return(result as TObjectIO<S, U, C, SMK>))
+        .catch((err) => ctx.handleAsyncAbort(err));
     }
 
     for (const [k, t] of Object.entries(shape)) {
@@ -3042,27 +3239,17 @@ export class TObject<
         }
       } else if (unknownKeys === "passthrough") {
         result[k] = data[k];
-      } else if (unknownKeys === "strict") {
-        ctx.addIssue(
-          { kind: TIssueKind.Object.UnknownKey, payload: { key: k } },
-          this.options.messages[TIssueKind.Object.UnknownKey]
-        );
-        if (ctx.common.abortEarly) {
-          return ctx.return();
-        }
       }
     }
 
-    return ctx.return(result as TObjectIO<S, U, C>);
+    return ctx.return(result as TObjectIO<S, U, C, SMK>);
   }
 
   get shape(): S {
     return this.props.shape;
   }
 
-  keyof(): tf.IsEqual<keyof S, never> extends true
-    ? TNever
-    : TEnum<Try<UnionToTuple<keyof S>, AtLeastOne<keyof S & string>>>;
+  keyof(): utils.Equals<keyof S, never> extends 1 ? TNever : TEnum<Try<UnionToTuple<keyof S>, TEnumValues>>;
   keyof() {
     const keys = Object.keys(this.props.shape);
     const transferrableOptions = pickTransferrableOptions(this.options);
@@ -3071,23 +3258,24 @@ export class TObject<
       return TNever.create(transferrableOptions);
     }
 
-    return TEnum.create(
-      Object.keys(this.props.shape) as Try<UnionToTuple<keyof S>, AtLeastOne<keyof S & string>>,
-      transferrableOptions
-    );
+    return TEnum.create(keys as Try<UnionToTuple<keyof S>, TEnumValues>, transferrableOptions);
   }
 
   passthrough() {
     return this._setUnknownKeys("passthrough");
   }
 
-  strict(options?: { message?: string }) {
+  strict(options?: TCheck.Options) {
     const updated = this._setUnknownKeys("strict");
-    return new TObject({
+    return new TObject<S, "strict", null, SMK>({
       ...updated._def,
       options: {
-        ...updated.options,
-        messages: { ...updated.options.messages, [TIssueKind.Object.UnknownKey]: options?.message },
+        ...updated._def.options,
+        messages: {
+          ...updated._def.options.messages,
+          [TIssueKind.Object.UnknownKeys]:
+            utils.extractMsg(options) ?? updated._def.options.messages[TIssueKind.Object.UnknownKeys],
+        },
       },
     });
   }
@@ -3097,11 +3285,26 @@ export class TObject<
   }
 
   catchall<T extends AnyTType>(catchall: T) {
-    return new TObject<S, null, T>({ ...this._def, props: { ...this._def.props, unknownKeys: null, catchall } });
+    return new TObject<S, null, T, SMK>({ ...this._def, props: { ...this._def.props, unknownKeys: null, catchall } });
   }
 
   removeCatchall() {
     return this.strip();
+  }
+
+  strictPresence(options?: TCheck.Options): TObject<S, U, C, true> {
+    return new TObject<S, U, C, true>({
+      ...this._def,
+      props: { ...this._def.props, strictMissingKeys: true },
+      options: {
+        ...this._def.options,
+        messages: {
+          ...this._def.options.messages,
+          [TIssueKind.Object.MissingKeys]:
+            utils.extractMsg(options) ?? this._def.options.messages[TIssueKind.Object.MissingKeys],
+        },
+      },
+    });
   }
 
   augment<T extends TObjectShape>(augmentation: T) {
@@ -3122,19 +3325,19 @@ export class TObject<
     return other._setShape(merge(this.shape, other.shape));
   }
 
-  pick<K extends AtLeastOne<keyof S>>(keys: K) {
-    return this._setShape(pick<S, K[number]>(this.shape, keys));
+  pick<K extends utils.AtLeastOne<keyof S>>(...keys: K) {
+    return this._setShape(utils.pick<S, K[number]>(this.shape, ...keys));
   }
 
-  omit<K extends AtLeastOne<keyof S>>(keys: K) {
-    return this._setShape(omit<S, K[number]>(this.shape, keys));
+  omit<K extends utils.AtLeastOne<keyof S>>(...keys: K) {
+    return this._setShape(utils.omit<S, K[number]>(this.shape, ...keys));
   }
 
-  partial(): TObject<{ [K in keyof S]: TOptional<S[K]> }, U, C>;
-  partial<K extends AtLeastOne<keyof S>>(
+  partial(): TObject<{ [K in keyof S]: TOptional<S[K]> }, U, C, SMK>;
+  partial<K extends utils.AtLeastOne<keyof S>>(
     keys: K
-  ): TObject<{ [P in keyof S]: P extends K ? TOptional<S[P]> : S[P] }, U, C>;
-  partial(keys?: AtLeastOne<keyof S>): AnyTObject {
+  ): TObject<{ [P in keyof S]: P extends K ? TOptional<S[P]> : S[P] }, U, C, SMK>;
+  partial(keys?: utils.AtLeastOne<keyof S>): AnyTObject {
     return this._setShape(
       Object.fromEntries(
         Object.entries(this.shape).map(([k, v]) => [k, keys ? (keys.includes(k) ? v.optional() : v) : v.optional()])
@@ -3142,11 +3345,11 @@ export class TObject<
     );
   }
 
-  required(): TObject<{ [K in keyof S]: TDefined<S[K]> }, U, C>;
-  required<K extends AtLeastOne<keyof S>>(
+  required(): TObject<{ [K in keyof S]: TDefined<S[K]> }, U, C, SMK>;
+  required<K extends utils.AtLeastOne<keyof S>>(
     keys: K
-  ): TObject<{ [P in keyof S]: P extends K ? TDefined<S[P]> : S[P] }, U, C>;
-  required(keys?: AtLeastOne<keyof S>): AnyTObject {
+  ): TObject<{ [P in keyof S]: P extends K ? TDefined<S[P]> : S[P] }, U, C, SMK>;
+  required(keys?: utils.AtLeastOne<keyof S>): AnyTObject {
     return this._setShape(
       Object.fromEntries(
         Object.entries(this.shape).map(([k, v]) => [k, keys ? (keys.includes(k) ? v.defined() : v) : v.defined()])
@@ -3160,11 +3363,11 @@ export class TObject<
   }
 
   private _setShape<T extends TObjectShape>(shape: T) {
-    return new TObject<T, U, C>({ ...this._def, props: { ...this._def.props, shape } });
+    return new TObject<T, U, C, SMK>({ ...this._def, props: { ...this._def.props, shape } });
   }
 
   private _setUnknownKeys<T extends TObjectUnknownKeys>(unknownKeys: T) {
-    return new TObject<S, T>({ ...this._def, props: { ...this._def.props, unknownKeys, catchall: null } });
+    return new TObject<S, T, null, SMK>({ ...this._def, props: { ...this._def.props, unknownKeys, catchall: null } });
   }
 
   static readonly create = Object.freeze(
@@ -3180,14 +3383,14 @@ export class TObject<
     return <S extends TObjectShape>(shape: S, options?: TObjectOptions): TObject<S, U> =>
       new TObject({
         typeName: TTypeName.Object,
-        props: { shape, unknownKeys, catchall: null },
+        props: { shape, unknownKeys, catchall: null, strictMissingKeys: false },
         options: processCreateOptions(options),
       });
   }
 }
 
-export type AnyTObject = TObject<any, TObjectUnknownKeys | null, AnyTType | null>;
-export type SomeTObject = TObject<TObjectShape, TObjectUnknownKeys | null, AnyTType | null>;
+export type AnyTObject = TObject<any, TObjectUnknownKeys | null, AnyTType | null, any>;
+export type SomeTObject = TObject<TObjectShape, TObjectUnknownKeys | null, AnyTType | null, any>;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     TInstanceOf                                                    */
@@ -3235,7 +3438,17 @@ export type TPromiseDef<T extends AnyTType> = MakeTDef<{
   $Props: { readonly underlying: T };
 }>;
 
-export class TPromise<T extends AnyTType> extends TType<TPromiseDef<T>> {
+export class TPromise<T extends AnyTType> extends TType<TPromiseDef<T>> implements TUnwrappable<T, "TPromise"> {
+  get _spec() {
+    return utils.asConst({
+      promise: true,
+      underlying: utils.extractProp(this.props.underlying, "manifest"),
+      optional: utils.extractProp(this.props.underlying.manifest, "optional"),
+      nullable: utils.extractProp(this.props.underlying.manifest, "nullable"),
+      readonly: utils.extractProp(this.props.underlying.manifest, "readonly"),
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     if (!isKindOf(ctx.data, ValueKind.Promise) && !ctx.common.async) {
       return ctx.invalidType({ expected: ValueKind.Promise }).return();
@@ -3286,7 +3499,16 @@ export type TOptionalDef<T extends AnyTType> = MakeTDef<{
   $Props: { readonly underlying: T };
 }>;
 
-export class TOptional<T extends AnyTType> extends TType<TOptionalDef<T>> {
+export class TOptional<T extends AnyTType> extends TType<TOptionalDef<T>> implements TUnwrappable<T, "TOptional"> {
+  get _spec() {
+    return utils.asConst({
+      underlying: utils.extractProp(this.props.underlying, "manifest"),
+      nullable: utils.extractProp(this.props.underlying.manifest, "nullable"),
+      readonly: utils.extractProp(this.props.underlying.manifest, "readonly"),
+      optional: true,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
       ? ctx.return(ctx.data)
@@ -3335,8 +3557,17 @@ export type TNullableDef<T extends AnyTType> = MakeTDef<{
   $Props: { readonly underlying: T };
 }>;
 
-export class TNullable<T extends AnyTType> extends TType<TNullableDef<T>> {
-  _parse(ctx: TParseContext<this>) {
+export class TNullable<T extends AnyTType> extends TType<TNullableDef<T>> implements TUnwrappable<T, "TNullable"> {
+  get _spec() {
+    return utils.asConst({
+      underlying: utils.extractProp(this.props.underlying, "manifest"),
+      optional: utils.extractProp(this.props.underlying.manifest, "optional"),
+      readonly: utils.extractProp(this.props.underlying.manifest, "readonly"),
+      nullable: true,
+    });
+  }
+
+  _parse(ctx: TParseContext<this>): TParseResultOf<this> {
     return isKindOf(ctx.data, ValueKind.Null)
       ? ctx.return(ctx.data)
       : this.underlying._parse(ctx.child(this.underlying, ctx.data));
@@ -3384,7 +3615,16 @@ export type TDefinedDef<T extends AnyTType> = MakeTDef<{
   $Props: { readonly underlying: T };
 }>;
 
-export class TDefined<T extends AnyTType> extends TType<TDefinedDef<T>> {
+export class TDefined<T extends AnyTType> extends TType<TDefinedDef<T>> implements TUnwrappable<T, "TDefined"> {
+  get _spec() {
+    return utils.asConst({
+      underlying: utils.extractProp(this.props.underlying, "manifest"),
+      nullable: utils.extractProp(this.props.underlying.manifest, "nullable"),
+      readonly: utils.extractProp(this.props.underlying.manifest, "readonly"),
+      optional: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, ValueKind.Undefined)
       ? ctx.addIssue({ kind: TIssueKind.Base.Required }, this.options.messages?.[TIssueKind.Base.Required]).return()
@@ -3428,7 +3668,19 @@ export type TNonNullableDef<T extends AnyTType> = MakeTDef<{
   $Options: TNonNullableOptions;
 }>;
 
-export class TNonNullable<T extends AnyTType> extends TType<TNonNullableDef<T>> {
+export class TNonNullable<T extends AnyTType>
+  extends TType<TNonNullableDef<T>>
+  implements TUnwrappable<T, "TNonNullable">
+{
+  get _spec() {
+    return utils.asConst({
+      underlying: utils.extractProp(this.props.underlying, "manifest"),
+      readonly: utils.extractProp(this.props.underlying.manifest, "readonly"),
+      optional: false,
+      nullable: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>) {
     return isKindOf(ctx.data, [ValueKind.Undefined, ValueKind.Null])
       ? ctx
@@ -3478,7 +3730,11 @@ export type TLazyDef<T extends AnyTType> = MakeTDef<{
   $Props: { readonly getType: () => T };
 }>;
 
-export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> {
+export class TLazy<T extends AnyTType> extends TType<TLazyDef<T>> implements TUnwrappable<T, "TLazy"> {
+  get _spec() {
+    return utils.extractProp(this.props.getType(), "_spec");
+  }
+
   _parse(ctx: TParseContext<this>) {
     return this.underlying._parse(ctx.child(this.underlying, ctx.data));
   }
@@ -3517,7 +3773,16 @@ export type TReadonlyDef<T extends AnyTType> = MakeTDef<{
   $Props: { readonly underlying: T };
 }>;
 
-export class TReadonly<T extends AnyTType> extends TType<TReadonlyDef<T>> {
+export class TReadonly<T extends AnyTType> extends TType<TReadonlyDef<T>> implements TUnwrappable<T, "TReadonly"> {
+  get _spec() {
+    return utils.asConst({
+      underlying: utils.extractProp(this.props.underlying, "manifest"),
+      optional: utils.extractProp(this.props.underlying.manifest, "optional"),
+      nullable: utils.extractProp(this.props.underlying.manifest, "nullable"),
+      readonly: true,
+    });
+  }
+
   _parse(ctx: TParseContext<this>): TParseResultOf<this> {
     const freezeRes = (res: TParseResultSyncOf<T>) => (res.data ? { ...res, data: Object.freeze(res.data) } : res);
 
@@ -3559,6 +3824,10 @@ export type AnyTReadonly = TReadonly<AnyTType>;
 /*                                                       TBrand                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+export const BRAND = Symbol("t.brand");
+export type BRAND = typeof BRAND;
+export type BRANDED<T, B> = T & { [BRAND]: B };
+
 export type TBrandDef<T extends AnyTType, B> = MakeTDef<{
   $Out: BRANDED<OutputOf<T>, B>;
   $In: InputOf<T>;
@@ -3566,7 +3835,7 @@ export type TBrandDef<T extends AnyTType, B> = MakeTDef<{
   $Props: { readonly underlying: T; readonly getBrand: () => B };
 }>;
 
-export class TBrand<T extends AnyTType, B> extends TType<TBrandDef<T, B>> {
+export class TBrand<T extends AnyTType, B> extends TType<TBrandDef<T, B>> implements TUnwrappable<T, "TBrand"> {
   _parse(ctx: TParseContext<this>) {
     return this.underlying._parse(ctx.child(this.underlying, ctx.data));
   }
@@ -3868,6 +4137,15 @@ export type TUnionDef<T extends readonly AnyTType[]> = MakeTDef<{
 }>;
 
 export class TUnion<T extends readonly AnyTType[]> extends TType<TUnionDef<T>> {
+  get _spec() {
+    return utils.asConst({
+      types: utils.mapProp(this.props.types, "manifest"),
+      optional: this.props.types.some((t) => t.isOptional),
+      nullable: this.props.types.some((t) => t.isNullable),
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>): TParseResultOf<this> {
     const members = flattenMembers(this.types, TTypeName.Union);
 
@@ -3965,6 +4243,15 @@ export type TIntersectionDef<T extends readonly AnyTType[]> = MakeTDef<{
 }>;
 
 export class TIntersection<T extends readonly AnyTType[]> extends TType<TIntersectionDef<T>> {
+  get _spec() {
+    return utils.asConst({
+      types: utils.mapProp(this.props.types, "manifest"),
+      optional: this.props.types.every((t) => t.isOptional),
+      nullable: this.props.types.every((t) => t.isNullable),
+      readonly: false,
+    });
+  }
+
   _parse(ctx: TParseContext<this>): TParseResultOf<this> {
     const members = flattenMembers(this.types, TTypeName.Intersection);
 
@@ -4023,7 +4310,6 @@ export class TIntersection<T extends readonly AnyTType[]> extends TType<TInterse
     }
 
     if (errors.length > 0) {
-      console.log(ctx.ownIssues);
       return terminate();
     }
 
@@ -4080,7 +4366,7 @@ export type TEffectBase<K extends TEffectKind> = {
   readonly kind: K;
 };
 
-export type TEffectIssueData = _<
+export type TEffectIssueData = utils.Simplify<
   TParseContextIssueData & { readonly message?: string; readonly params?: Readonly<Record<string, unknown>> }
 >;
 
@@ -4252,7 +4538,7 @@ export type TRefinementCustomIssueParams = {
   readonly path?: TParseContextPath;
 };
 
-export type TRefinementData<T extends AnyTType> = _<
+export type TRefinementData<T extends AnyTType> = utils.Simplify<
   | string
   | TEffectIssueData
   | TRefinementCustomIssueParams
@@ -4514,14 +4800,10 @@ export const TCast = {
 export const TOverrideMarker = Symbol("t.override");
 export type TOverrideMarker = typeof TOverrideMarker;
 
-export type MaybeWithOverride<T extends readonly unknown[]> = T | [TOverrideMarker, ...T] extends infer X ? X : never;
-
-export const TUnsetMarker = Symbol("t.unset");
-export type TUnsetMarker = typeof TUnsetMarker;
+export type MaybeWithTOverride<T extends readonly unknown[]> = T | [TOverrideMarker, ...T] extends infer X ? X : never;
 
 export const TMarkers = {
   override: TOverrideMarker,
-  unset: TUnsetMarker,
 } as const;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -4575,7 +4857,6 @@ export const voidType = TVoid.create.bind(TVoid);
 
 export const markers = TMarkers;
 export const overrideMarker: typeof TOverrideMarker = TMarkers.override;
-export const unsetMarker: typeof TUnsetMarker = TMarkers.unset;
 
 export const global = () => TGlobal;
 
@@ -4634,18 +4915,22 @@ export {
   unionType as or,
   unionType as union,
   unknownType as unknown,
-  unsetMarker as unset,
   voidType as void,
 };
 
-export type output<T extends AnyTType> = __<T["$O"]>;
-export type input<T extends AnyTType> = __<T["$I"]>;
+export type output<T extends AnyTType> = utils.SimplifyDeep<T["$O"]>;
+export type input<T extends AnyTType> = utils.SimplifyDeep<T["$I"]>;
 export type infer<T extends AnyTType> = output<T>;
 
-export type inferFormattedError<T extends AnyTType> = __<TFormattedErrorOf<T>>;
-export type inferFlattenedError<T extends AnyTType> = __<TFlattenedErrorOf<T>>;
+export type inferFormattedError<T extends AnyTType> = TFormattedErrorOf<T>;
+export type inferFlattenedError<T extends AnyTType> = TFlattenedErrorOf<T>;
 
 export type paths<T extends AnyTType> = PathsOf<output<T>>;
+
+export * from "./checks";
+export * from "./error";
+export * from "./issues";
+export * from "./options";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -4655,6 +4940,16 @@ export type UnwrapDeep<T extends AnyTType, TN extends TTypeName> = T extends {
 }
   ? UnwrapDeep<U, TN>
   : T;
+
+function handleUnwrapDeep<T extends AnyTType, TN extends [TTypeName, ...TTypeName[]]>(t: T, tns: TN) {
+  let unwrapped: AnyTType = t;
+
+  while (tns.includes(unwrapped.typeName) && "unwrap" in unwrapped && typeof unwrapped.unwrap === "function") {
+    unwrapped = unwrapped.unwrap() as AnyTType;
+  }
+
+  return unwrapped as UnwrapDeep<T, TN[number]>;
+}
 
 export type UnwrapUntil<T extends AnyTType, TN extends TTypeName> = T extends {
   readonly typeName: TN;
@@ -4666,14 +4961,18 @@ export type UnwrapUntil<T extends AnyTType, TN extends TTypeName> = T extends {
     : T
   : T;
 
-function handleUnwrapDeep<T extends AnyTType, TN extends [TTypeName, ...TTypeName[]]>(t: T, tns: TN) {
+export function handleUnwrapUntil<T extends AnyTType, TN extends [TTypeName, ...TTypeName[]]>(
+  t: T,
+  tns: TN
+): UnwrapUntil<T, TN[number]>;
+export function handleUnwrapUntil<T extends AnyTType, TN extends [TTypeName, ...TTypeName[]]>(t: T, tns: TN) {
   let unwrapped: AnyTType = t;
 
-  while (tns.includes(unwrapped.typeName) && "unwrap" in unwrapped && typeof unwrapped.unwrap === "function") {
+  while (!tns.includes(unwrapped.typeName) && "unwrap" in unwrapped && typeof unwrapped.unwrap === "function") {
     unwrapped = unwrapped.unwrap() as AnyTType;
   }
 
-  return unwrapped as UnwrapDeep<T, TN[number]>;
+  return unwrapped;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -4742,7 +5041,7 @@ function deepPartialify(t: AnyTType): AnyTOptional {
 
 type PathsOfArrayElement<T> =
   | `[${number}]`
-  | (T extends BuiltIn
+  | (T extends utils.BuiltIn
       ? never
       : T extends readonly [unknown, ...unknown[]]
       ? `[${number}]${PathsOfTuple<T>}`
@@ -4757,7 +5056,7 @@ type PathsOfTuple<T extends readonly unknown[], _Acc extends readonly string[] =
   : T extends readonly [infer H, ...infer R]
   ?
       | PathsOfTuple<R, [..._Acc, `[${_Acc["length"]}]`]>
-      | (H extends BuiltIn
+      | (H extends utils.BuiltIn
           ? never
           : H extends readonly [unknown, ...unknown[]]
           ? `[${_Acc["length"]}]${PathsOfTuple<H>}`
@@ -4772,7 +5071,7 @@ type PathsOfObject<T extends object> = {
   [K in keyof T]:
     | K
     | (K extends string | number
-        ? T[K] extends BuiltIn
+        ? T[K] extends utils.BuiltIn
           ? never
           : T[K] extends readonly [unknown, ...unknown[]]
           ? `${K}${PathsOfTuple<T[K]>}`

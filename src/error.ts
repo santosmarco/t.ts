@@ -4,6 +4,7 @@ import type { TIssue, TIssueKind } from "./issues";
 import type { TParseContext } from "./parse";
 import type { AnyTType, InputOf } from "./types";
 import { ValueKind, isKindOf, type AllKeys, type StripKey } from "./utils";
+import { string } from "joi";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TError                                                       */
@@ -67,7 +68,11 @@ export type TFormattedError<T, U = string> = {
 
 export type TFlattenedError<T, U = string> = {
   readonly formErrors: readonly U[];
-  readonly fieldErrors: { readonly [K in AllKeys<T>]?: readonly U[] };
+  readonly fieldErrors: T extends Record<string, unknown>
+    ? { readonly [K in AllKeys<T>]?: readonly U[] }
+    : T extends readonly [unknown, ...unknown[]]
+    ? { [K in keyof T]?: readonly U[] }
+    : never;
 };
 
 export class TError<$I = unknown> extends Error {
@@ -111,9 +116,9 @@ export class TError<$I = unknown> extends Error {
 
   format(): TFormattedError<$I>;
   format<U>(mapper: (issue: TIssue) => U): TFormattedError<$I, U>;
-  format<U>(_mapper?: (issue: TIssue) => U): TFormattedError<$I, U | string> {
+  format(_mapper?: (issue: TIssue) => unknown) {
     const mapper = _mapper ?? ((issue: TIssue) => issue.message);
-    const fieldErrors = { _errors: [] } as { _errors: (U | string)[]; [x: string | number]: unknown };
+    const fieldErrors = { _errors: [] } as { _errors: unknown[]; [x: string | number]: unknown };
 
     const processError = (error: TError) => {
       for (const iss of error.issues) {
@@ -130,7 +135,7 @@ export class TError<$I = unknown> extends Error {
             const el = iss.path[i]!;
             curr[el] = curr[el] ?? { _errors: [] };
             if (i === iss.path.length - 1) {
-              (curr[el] as { _errors: (U | string)[] })._errors.push(mapper(iss));
+              (curr[el] as { _errors: unknown[] })._errors.push(mapper(iss));
             }
             curr = curr[el] as typeof fieldErrors;
             i++;
@@ -140,15 +145,15 @@ export class TError<$I = unknown> extends Error {
     };
 
     processError(this);
-    return fieldErrors as TFormattedError<$I, U | string>;
+    return fieldErrors as TFormattedError<$I, unknown>;
   }
 
   flatten(): TFlattenedError<$I>;
   flatten<U>(mapper: (issue: TIssue) => U): TFlattenedError<$I, U>;
-  flatten<U>(_mapper?: (issue: TIssue) => U): TFlattenedError<$I, U | string> {
+  flatten(_mapper?: (issue: TIssue) => unknown): TFlattenedError<$I, unknown> {
     const mapper = _mapper ?? ((issue: TIssue) => issue.message);
-    const fieldErrors: Record<string | number, (U | string)[]> = {};
-    const formErrors: (U | string)[] = [];
+    const fieldErrors: Record<string | number, unknown[]> = {};
+    const formErrors: unknown[] = [];
 
     for (const iss of this.issues) {
       if (iss.path.length > 0) {
@@ -166,3 +171,9 @@ export class TError<$I = unknown> extends Error {
 
 export type TFormattedErrorOf<T extends AnyTType, U = string> = TFormattedError<InputOf<T>, U>;
 export type TFlattenedErrorOf<T extends AnyTType, U = string> = TFlattenedError<InputOf<T>, U>;
+
+export class AbortedParse extends Error {
+  constructor() {
+    super("<<aborted>>");
+  }
+}

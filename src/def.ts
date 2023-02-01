@@ -1,23 +1,22 @@
-import type * as tf from "type-fest";
 import type { TCheckBase } from "./checks";
 import type { AnyTOptions, TOptions } from "./options";
 import type { TTypeName } from "./types";
+import type { utils } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                        TDef                                                        */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions
-export interface TDef {
+export type TDef = {
   $Out: unknown;
   $In: unknown;
   $TypeName: TTypeName;
   $Props: Record<string, unknown> | null;
   $Options: AnyTOptions;
   $Checks: ReadonlyArray<TCheckBase & Record<string, unknown>> | null;
-}
+};
 
-export type MakeTDef<T extends tf.Exact<tf.SetOptional<TDef, "$In" | "$Props" | "$Options" | "$Checks">, T>> = {
+export type MakeTDef<T extends utils.Exact<utils.SetOptional<TDef, "$In" | "$Props" | "$Options" | "$Checks">, T>> = {
   $Out: T["$Out"];
   $In: "$In" extends keyof T ? T["$In"] : T["$Out"];
   $TypeName: T["$TypeName"];

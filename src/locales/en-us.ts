@@ -171,7 +171,7 @@ const enUS: TLocale = {
 
       // Record
       case TIssueKind.Record.InvalidKey:
-        return `Invalid key ${printValue(issue.payload.key, true)} in ${ValueKind.Object}: ${printIssues(
+        return `Invalid key ${printValue(issue.payload.key, true)} in object: ${printIssues(
           issue.payload.error.issues
         )}`;
       case TIssueKind.Record.MinKeys:
@@ -185,13 +185,13 @@ const enUS: TLocale = {
 
       // Map
       case TIssueKind.Map.InvalidKey:
-        return `Invalid key ${printValue(issue.payload.key, true)} in ${ValueKind.Map}: ${printIssues(
-          issue.payload.error.issues
-        )}`;
+        return `Invalid key ${printValue(issue.payload.key, true)} in Map: ${printIssues(issue.payload.error.issues)}`;
 
       // Object
-      case TIssueKind.Object.UnknownKey:
-        return `Unknown key ${printValue(issue.payload.key, true)} found in ${ValueKind.Object}`;
+      case TIssueKind.Object.UnknownKeys:
+        return `Unknown keys found in object: ${issue.payload.keys.map((k) => printValue(k)).join(", ")}`;
+      case TIssueKind.Object.MissingKeys:
+        return `Required keys not found in object: ${issue.payload.keys.map((k) => printValue(k)).join(", ")}`;
 
       // Function
       case TIssueKind.Function.InvalidThisType:
@@ -203,7 +203,7 @@ const enUS: TLocale = {
 
       // Union
       case TIssueKind.Union.Invalid:
-        return `{ Unmatched union } ${printIssues(
+        return `{ Invalid union } ${printIssues(
           issue.payload.errors.flatMap((err) => err.issues),
           true
         )}`;
