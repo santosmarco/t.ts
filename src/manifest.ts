@@ -1,5 +1,5 @@
 import type { AnyTType, InputOf, OutputOf } from "./types";
-import { ValueKind, isKindOf, type _, type utils } from "./utils";
+import { ValueKind, isKindOf, type utils } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TManifest                                                     */

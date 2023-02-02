@@ -26,6 +26,7 @@ import {
   type ProcessedCreateOptions,
   type TOptions,
   type TParseOptions,
+  type TParseHooks,
 } from "./options";
 import {
   TParseContext,
@@ -34,7 +35,7 @@ import {
   type TParseResult,
   type TParseResultOf,
   type TParseResultSyncOf,
-} from "./parse";
+} from "./parse/context";
 import { colorize, show } from "./show";
 import { isNullable, isOptional, isReadonly, type TSpec } from "./spec";
 import {
@@ -300,12 +301,20 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return Promise.resolve(this._parse(ctx));
   }
 
-  safeParse(data: unknown, options?: TParseOptions): TParseResultSyncOf<this> {
-    const result = this._parseSync(TParseContext.createSync(this, data, processParseOptions(this.options, options)));
+  safeParse<Ctx extends object>(
+    data: unknown,
+    options?: utils.Simplify<utils.Merge<TParseOptions<Ctx>, TParseHooks<this, Ctx>>>
+  ): TParseResultSyncOf<this> {
+    const result = this._parseSync(
+      TParseContext.createSync(this, data, processParseOptions(this.options, options as TParseOptions))
+    );
     return result;
   }
 
-  parse(data: unknown, options?: TParseOptions): Def["$Out"] {
+  parse<Ctx extends object>(
+    data: unknown,
+    options?: utils.Simplify<utils.Merge<TParseOptions<Ctx>, TParseHooks<this, Ctx>>>
+  ): Def["$Out"] {
     const result = this.safeParse(data, options);
     if (!result.ok) {
       throw result.error;
@@ -314,12 +323,20 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return result.data;
   }
 
-  async safeParseAsync(data: unknown, options?: TParseOptions): Promise<TParseResultSyncOf<this>> {
-    const result = this._parseAsync(TParseContext.createAsync(this, data, processParseOptions(this.options, options)));
+  async safeParseAsync<Ctx extends object>(
+    data: unknown,
+    options?: utils.Simplify<utils.Merge<TParseOptions<Ctx>, TParseHooks<this, Ctx>>>
+  ): Promise<TParseResultSyncOf<this>> {
+    const result = this._parseAsync(
+      TParseContext.createAsync(this, data, processParseOptions(this.options, options as TParseOptions))
+    );
     return result;
   }
 
-  async parseAsync(data: unknown, options?: TParseOptions): Promise<Def["$Out"]> {
+  async parseAsync<Ctx extends object>(
+    data: unknown,
+    options?: utils.Simplify<utils.Merge<TParseOptions<Ctx>, TParseHooks<this, Ctx>>>
+  ): Promise<Def["$Out"]> {
     const result = await this.safeParseAsync(data, options);
     if (!result.ok) {
       throw result.error;
@@ -398,7 +415,7 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
     return TCatch.create(this, catchValueOrGetter, pickTransferrableOptions(this.options));
   }
 
-  pipe<T extends TType<Merge<AnyTDef, { $In: Def["$Out"] }>>>(type: T): TPipeline<this, T> {
+  pipe<T extends TType<utils.Merge<AnyTDef, { $In: Def["$Out"] }>>>(type: T): TPipeline<this, T> {
     return TPipeline.create(this, type, pickTransferrableOptions(this.options));
   }
 
@@ -616,11 +633,7 @@ export type TAnyDef = MakeTDef<{
 
 export class TAny extends TType<TAnyDef> {
   get _spec() {
-    return utils.asConst({
-      optional: true,
-      nullable: true,
-      readonly: false,
-    });
+    return utils.asConst({ optional: true, nullable: true, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -643,11 +656,7 @@ export type TUnknownDef = MakeTDef<{
 
 export class TUnknown extends TType<TUnknownDef> {
   get _spec() {
-    return utils.asConst({
-      optional: true,
-      nullable: true,
-      readonly: false,
-    });
+    return utils.asConst({ optional: true, nullable: true, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -673,11 +682,7 @@ export type TNeverDef = MakeTDef<{
 
 export class TNever extends TType<TNeverDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -702,11 +707,7 @@ export type TUndefinedDef = MakeTDef<{
 
 export class TUndefined extends TType<TUndefinedDef> {
   get _spec() {
-    return utils.asConst({
-      optional: true,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: true, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -731,11 +732,7 @@ export type TVoidDef = MakeTDef<{
 
 export class TVoid extends TType<TVoidDef> {
   get _spec() {
-    return utils.asConst({
-      optional: true,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: true, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -760,11 +757,7 @@ export type TNullDef = MakeTDef<{
 
 export class TNull extends TType<TNullDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: true,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: true, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -833,11 +826,7 @@ const base64Rx = {
 
 export class TString<Co extends TStringCoercion = false> extends TType<TStringDef<Co>> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1178,11 +1167,7 @@ export class TNumber<Co extends TNumberCoercion = false, Ca extends TNumberCasti
   TNumberDef<Co, Ca>
 > {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1481,11 +1466,7 @@ export type TNaNDef = MakeTDef<{
 
 export class TNaN extends TType<TNaNDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1510,11 +1491,7 @@ export type TBigIntDef = MakeTDef<{
 
 export class TBigInt extends TType<TBigIntDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1541,11 +1518,7 @@ export type TBooleanDef = MakeTDef<{
 
 export class TBoolean extends TType<TBooleanDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1578,11 +1551,7 @@ export type TTrueDef = MakeTDef<{
 
 export class TTrue extends TType<TTrueDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1603,11 +1572,7 @@ export type TFalseDef = MakeTDef<{
 
 export class TFalse extends TType<TFalseDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1630,11 +1595,7 @@ export type TDateDef = MakeTDef<{
 
 export class TDate extends TType<TDateDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1661,11 +1622,7 @@ export type TSymbolDef = MakeTDef<{
 
 export class TSymbol extends TType<TSymbolDef> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1789,11 +1746,7 @@ function parseEnum<T extends AnyTType>(
 
 export class TEnum<T extends readonly TEnumValue[]> extends TType<TEnumDef<T>> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -1874,11 +1827,7 @@ function getValidEnumValues(enum_: EnumLike) {
 
 export class TNativeEnum<T extends EnumLike> extends TType<TNativeEnumDef<T>> {
   get _spec() {
-    return utils.asConst({
-      optional: false,
-      nullable: false,
-      readonly: false,
-    });
+    return utils.asConst({ optional: false, nullable: false, readonly: false });
   }
 
   _parse(ctx: TParseContext<this>) {
@@ -2747,7 +2696,7 @@ export class TBuffer extends TType<TBufferDef> {
 /*                                                       TRecord                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TRecordKeys = TType<Merge<AnyTDef, { $Out: PropertyKey; $In: PropertyKey }>>;
+export type TRecordKeys = TType<utils.Merge<AnyTDef, { $Out: PropertyKey; $In: PropertyKey }>>;
 
 export type TRecordIO<K extends TRecordKeys, V extends AnyTType, IO extends "$O" | "$I" = "$O"> = true extends
   | tf.IsEqual<K[IO], string>
@@ -4092,8 +4041,8 @@ export class TPipeline<A extends AnyTType, B extends AnyTType> extends TType<TPi
     A,
     B,
     C,
-    T extends TType<Merge<AnyTDef, { $Out: B; $In: A }>>,
-    U extends TType<Merge<AnyTDef, { $Out: C; $In: B }>>
+    T extends TType<utils.Merge<AnyTDef, { $Out: B; $In: A }>>,
+    U extends TType<utils.Merge<AnyTDef, { $Out: C; $In: B }>>
   >(from: T, to: U, options?: TOptions): TPipeline<T, U> {
     return new TPipeline({ typeName: TTypeName.Pipeline, props: { from, to }, options: processCreateOptions(options) });
   }
@@ -4734,12 +4683,12 @@ export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTTy
     return this.props.else;
   }
 
-  static create<C extends AnyTType, T extends TType<Merge<AnyTDef, { $In: OutputOf<C> }>>, E extends AnyTType>(
+  static create<C extends AnyTType, T extends TType<utils.Merge<AnyTDef, { $In: OutputOf<C> }>>, E extends AnyTType>(
     condition: C,
     resolution: { then: T; else: E },
     options?: TOptions
   ): TIf<C, T, E>;
-  static create<C extends AnyTType, T extends TType<Merge<AnyTDef, { $In: OutputOf<C> }>>>(
+  static create<C extends AnyTType, T extends TType<utils.Merge<AnyTDef, { $In: OutputOf<C> }>>>(
     condition: C,
     resolution: { then: T },
     options?: TOptions
@@ -4749,7 +4698,7 @@ export class TIf<C extends AnyTType, T extends AnyTType | null, E extends AnyTTy
     resolution: { else: E },
     options?: TOptions
   ): TIf<C, null, E>;
-  static create<C extends AnyTType, T extends TType<Merge<AnyTDef, { $In: OutputOf<C> }>>, E extends AnyTType>(
+  static create<C extends AnyTType, T extends TType<utils.Merge<AnyTDef, { $In: OutputOf<C> }>>, E extends AnyTType>(
     condition: C,
     resolution: { then?: T; else?: E },
     options?: TOptions

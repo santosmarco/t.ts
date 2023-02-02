@@ -72,6 +72,8 @@ export namespace utils {
 
   export type SetOptional<T, K extends keyof T> = Simplify<Omit<T, K> & Partial<Pick<T, K>>>;
 
+  export type Merge<A, B> = Omit<A, keyof B> & B;
+
   export function simplify<T>(x: T): Simplify<T>;
   export function simplify(x: unknown) {
     return x;

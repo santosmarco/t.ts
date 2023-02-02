@@ -1,38 +1,16 @@
-import type * as tf from "type-fest";
-import { AbortedParse, TError, resolveErrorMaps } from "./error";
-import { TGlobal } from "./global";
-import { TIssueKind, type TIssue, type TIssueBase } from "./issues";
-import { type ProcessedParseOptions } from "./options";
-import type { AnyTType } from "./types";
-import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf, type StripKey } from "./utils";
+import { AbortedParse, TError, resolveErrorMaps } from "../error";
+import { TGlobal } from "../global";
+import { TIssueKind, type TIssue, type TIssueBase } from "../issues";
+import type { ProcessedParseOptions } from "../options";
+import type { AnyTType } from "../types";
+import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf, type StripKey, type utils } from "../utils";
+import { processParseCtxCommon, type TParseContextCommon } from "./common";
+import { createParseCtxHooksDispatcher, type TParseContextHooksDispatcher } from "./hooks";
+import { TParseResult, type TParseResultSyncOf } from "./result";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       TParse                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-export type TParseResultSuccess<$O> = {
-  readonly ok: true;
-  readonly data: $O;
-  readonly error?: never;
-  readonly warnings?: readonly TIssue[];
-};
-
-export type TParseResultFailure<$I> = {
-  readonly ok: false;
-  readonly data?: never;
-  readonly error: TError<$I>;
-  readonly warnings?: readonly TIssue[];
-};
-
-export type TParseResultSync<$O, $I = $O> = TParseResultSuccess<$O> | TParseResultFailure<$I>;
-export type TParseResultAsync<$O, $I = $O> = Promise<TParseResultSync<$O, $I>>;
-export type TParseResult<$O, $I = $O> = TParseResultSync<$O, $I> | TParseResultAsync<$O, $I>;
-
-export type TParseResultSuccessOf<T extends AnyTType> = TParseResultSuccess<T["$O"]>;
-export type TParseResultFailureOf<T extends AnyTType> = TParseResultFailure<T["$I"]>;
-export type TParseResultSyncOf<T extends AnyTType> = TParseResultSync<T["$O"], T["$I"]>;
-export type TParseResultAsyncOf<T extends AnyTType> = TParseResultAsync<T["$O"], T["$I"]>;
-export type TParseResultOf<T extends AnyTType> = TParseResultSyncOf<T> | TParseResultAsyncOf<T>;
 
 export const TParseContextStatus = {
   Valid: "valid",
@@ -43,17 +21,16 @@ export type TParseContextStatus = typeof TParseContextStatus[keyof typeof TParse
 
 export type TParseContextPath = ReadonlyArray<string | number | symbol>;
 
-export type TParseContextIssueData = StripKey<TIssue, keyof tf.Except<TIssueBase<TIssueKind>, "kind" | "payload">> & {
+export type TParseContextIssueData = StripKey<
+  TIssue,
+  keyof utils.Except<TIssueBase<TIssueKind>, "kind" | "payload">
+> & {
   readonly fatal?: boolean;
   readonly path?: TParseContextPath;
 };
 
-export type TParseContextCommon<T extends AnyTType = AnyTType> = ProcessedParseOptions<T["options"]> & {
-  readonly async: boolean;
-};
-
 export type TParseContextDef<T extends AnyTType> = {
-  readonly t: T;
+  readonly schema: T;
   readonly data: unknown;
   readonly path: TParseContextPath;
   readonly parent: TParseContext | null;
@@ -63,9 +40,9 @@ export type TParseContextDef<T extends AnyTType> = {
 export class TParseContext<T extends AnyTType = AnyTType> {
   private _status: TParseContextStatus;
   private _data: unknown;
-  private readonly _path: ReadonlyArray<string | number>;
 
-  private readonly _t: T;
+  private readonly _schema: T;
+  private readonly _path: ReadonlyArray<string | number>;
   private readonly _parent: TParseContext | null;
   private readonly _common: TParseContextCommon<T>;
 
@@ -73,39 +50,43 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   private readonly _issues: TIssue[];
   private readonly _warnings: TIssue[];
 
+  private readonly _dispatcher: TParseContextHooksDispatcher;
+
   private constructor(def: TParseContextDef<T>) {
-    const { t, data, path, parent, common } = def;
+    const { schema, data, path, parent, common } = def;
 
     this._status = TParseContextStatus.Valid;
     this._data = data;
-    this._path = coercePath(path);
 
-    this._t = t;
+    this._schema = schema;
+    this._path = coercePath(path);
     this._parent = parent;
     this._common = common;
 
     this._children = [];
     this._issues = [];
     this._warnings = [];
+
+    this._dispatcher = createParseCtxHooksDispatcher(this);
   }
 
-  get status() {
+  get status(): TParseContextStatus {
     return this._status;
   }
 
-  get data() {
+  get data(): unknown {
     return this._data;
   }
 
-  get dataKind() {
+  get dataKind(): ValueKind {
     return kindOf(this.data);
   }
 
-  get t() {
-    return this._t;
+  get schema(): T {
+    return this._schema;
   }
 
-  get path() {
+  get path(): ReadonlyArray<string | number> {
     return this._path;
   }
 
@@ -158,32 +139,31 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   }
 
   invalidate(): this {
-    if (!this.valid) return this;
+    this._dispatcher.onInvalidate();
+    if (!this.valid) {
+      return this;
+    }
     this._status = TParseContextStatus.Invalid;
     this.parent?.invalidate();
     return this;
   }
 
-  child<U extends AnyTType>(t: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
+  child<U extends AnyTType>(schema: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
+    const processedCommon = processParseCtxCommon(schema, this.common);
     const child = new TParseContext({
-      t,
+      schema,
       data,
       path: [...this.path, ...path],
       parent: this,
-      common: processTParseContextCommon(t, this.common),
+      common: processedCommon,
     });
     this._children.push(child);
     return child;
   }
 
-  clone<U extends AnyTType>(t: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
-    return new TParseContext({
-      t,
-      data,
-      path: [...this.path, ...path],
-      parent: null,
-      common: processTParseContextCommon(t, this.common),
-    });
+  clone<U extends AnyTType>(schema: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
+    const processedCommon = processParseCtxCommon(schema, this.common);
+    return new TParseContext({ schema, data, path: [...this.path, ...path], parent: null, common: processedCommon });
   }
 
   addIssue(issue: TParseContextIssueData, message: string | undefined): this {
@@ -211,7 +191,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
       data: this.data,
       path: issuePath,
       label: this.common.label ?? generateIssueLabel(this.path, locale.defaultLabel),
-      hint: this.t.show(),
+      hint: this.schema.show(),
       ...(this.common.warnOnly && { warning: true }),
     };
 
@@ -226,8 +206,10 @@ export class TParseContext<T extends AnyTType = AnyTType> {
 
     if (this.common.warnOnly) {
       this._warnings.push(fullIssue);
+      this._dispatcher.onWarning?.(fullIssue);
     } else {
       this._issues.push(fullIssue);
+      this._dispatcher.onIssue?.(fullIssue);
     }
 
     return this;
@@ -250,23 +232,11 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   }
 
   return<U extends T["$O"]>(data?: U): TParseResultSyncOf<T> {
-    const base = {
-      ...(this.allWarnings.length && { warnings: this.allWarnings }),
-    };
-
     if (!this.valid && !this.common.warnOnly) {
-      return {
-        ...base,
-        ok: false,
-        error: new TError(this),
-      };
+      return TParseResult.failure(new TError(this), this.allWarnings);
     }
 
-    return {
-      ...base,
-      ok: true,
-      data: arguments.length > 0 ? data : this.data,
-    };
+    return TParseResult.success(arguments.length > 0 ? data : this.data, this.allWarnings);
   }
 
   async abortAsync(): Promise<never> {
@@ -285,43 +255,13 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     return this.return();
   }
 
-  static createSync<T extends AnyTType>(
-    t: T,
-    data: unknown,
-    options: ProcessedParseOptions<T["options"]>
-  ): TParseContext<T> {
-    return new TParseContext({
-      t,
-      data,
-      path: [],
-      parent: null,
-      common: { ...options, async: false },
-    });
-  }
+  static readonly createSync = TParseContext._makeCreate(false);
+  static readonly createAsync = TParseContext._makeCreate(true);
 
-  static createAsync<T extends AnyTType>(
-    t: T,
-    data: unknown,
-    options: ProcessedParseOptions<T["options"]>
-  ): TParseContext<T> {
-    return new TParseContext({
-      t,
-      data,
-      path: [],
-      parent: null,
-      common: { ...options, async: true },
-    });
+  private static _makeCreate(async: boolean) {
+    return <T extends AnyTType>(t: T, data: unknown, options: ProcessedParseOptions<T["options"]>): TParseContext<T> =>
+      new TParseContext({ schema: t, data, path: [], parent: null, common: { ...options, async } });
   }
-}
-
-function processTParseContextCommon<T extends AnyTType>(t: T, common: TParseContextCommon): TParseContextCommon<T> {
-  return {
-    ...t.options,
-    abortEarly: t.options.abortEarly || common.abortEarly,
-    contextualErrorMap: common.contextualErrorMap,
-    warnOnly: t.options.warnOnly || common.warnOnly,
-    async: common.async,
-  };
 }
 
 function generateIssueLabel(path: TParseContextPath, defaultValue: string): string {

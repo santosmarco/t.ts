@@ -1,7 +1,7 @@
 import util from "util";
 import { TGlobal } from "./global";
 import type { TIssue, TIssueKind } from "./issues";
-import type { TParseContext } from "./parse";
+import type { TParseContext } from "./parse/context";
 import type { AnyTType, InputOf } from "./types";
 import { ValueKind, isKindOf, type AllKeys, type StripKey } from "./utils";
 import { string } from "joi";

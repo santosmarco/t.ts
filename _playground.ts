@@ -11,28 +11,16 @@ const Person = t
   // .strict()
   .or(t.string().array().readonly(), t.number(), t.never().or(t.never()));
 
-type Person = t.infer<typeof Person>;
-
-// console.log(Person.show({ colors: true }), Person.safeParse({ a: "2", 2: "3" }));
-
-const a = t.tuple([
-  t.string().transform(
-    async (val) =>
-      new Promise((resolve) => {
-        setTimeout(() => {
-          resolve(val + "a");
-        }, 4000);
-      })
-  ),
-  t.string().transform(
-    async (val) =>
-      new Promise((resolve) => {
-        setTimeout(() => {
-          resolve(val + "b");
-        }, 1000);
-      })
-  ),
-]);
-type a = t.infer<typeof a>;
-
-console.log(a.parseAsync(["a", "b"]).then(console.log));
+Person.safeParse(
+  {},
+  {
+    hooks: {
+      onIssue(issue, ctx, _ctx) {
+        console.log({ issue, ctx, _ctx });
+      },
+    },
+    context: {
+      a: 1,
+    },
+  }
+);

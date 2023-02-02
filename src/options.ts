@@ -1,6 +1,8 @@
 import type { TErrorMap } from "./error";
-import type { TIssueKind } from "./issues";
-import { pick, type _ } from "./utils";
+import type { TIssue, TIssueKind } from "./issues";
+import { type TParseContext } from "./parse/context";
+import { type AnyTType } from "./types";
+import { utils } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                      TOptions                                                      */
@@ -10,7 +12,7 @@ export type TOptionsOpts = {
   readonly issueKinds?: ReadonlyArray<Exclude<TIssueKind, "base.required" | "base.invalid_type">>;
 };
 
-export type TOptions<T extends TOptionsOpts | null = null> = _<{
+export type TOptions<T extends TOptionsOpts | null = null> = utils.Simplify<{
   readonly abortEarly?: boolean;
   readonly label?: string;
   readonly schemaErrorMap?: TErrorMap;
@@ -25,7 +27,7 @@ export type TOptions<T extends TOptionsOpts | null = null> = _<{
 
 export type AnyTOptions = TOptions<Required<TOptionsOpts>>;
 
-export type ProcessedCreateOptions<T extends AnyTOptions = AnyTOptions> = _<{
+export type ProcessedCreateOptions<T extends AnyTOptions = AnyTOptions> = utils.Simplify<{
   readonly abortEarly: boolean;
   readonly label: string | undefined;
   readonly schemaErrorMap: TErrorMap | undefined;
@@ -40,26 +42,37 @@ export function processCreateOptions(opts: AnyTOptions | undefined) {
     label: opts?.label,
     schemaErrorMap: opts?.schemaErrorMap,
     warnOnly: opts?.warnOnly ?? false,
-    messages: {
-      ...opts?.messages,
-    },
+    messages: { ...opts?.messages },
   };
 }
 
-export type TParseOptions = _<{
-  readonly abortEarly?: boolean;
-  readonly label?: string;
-  readonly contextualErrorMap?: TErrorMap;
-  readonly warnOnly?: boolean;
-}>;
+export type TParseHooks<T extends AnyTType = AnyTType, Ctx extends object = object> = {
+  readonly hooks?: {
+    readonly onInvalidate?: (ctx: Ctx, parseCtx: TParseContext<T>) => void;
+    readonly onIssue?: (issue: TIssue, ctx: Ctx, parseCtx: TParseContext<T>) => void;
+    readonly onWarning?: (warning: TIssue, ctx: Ctx, parseCtx: TParseContext<T>) => void;
+  };
+};
 
-export type ProcessedParseOptions<T extends AnyTOptions = AnyTOptions> = _<{
+export type TParseOptions<Ctx extends object = object> = utils.Simplify<
+  {
+    readonly abortEarly?: boolean;
+    readonly label?: string;
+    readonly contextualErrorMap?: TErrorMap;
+    readonly warnOnly?: boolean;
+    readonly context?: Ctx;
+  } & TParseHooks
+>;
+
+export type ProcessedParseOptions<T extends AnyTOptions> = utils.Simplify<{
   readonly abortEarly: boolean;
   readonly label: string | undefined;
   readonly schemaErrorMap: TErrorMap | undefined;
   readonly contextualErrorMap: TErrorMap | undefined;
   readonly warnOnly: boolean;
   readonly messages: Exclude<T["messages"], undefined>;
+  readonly externalCtx: object;
+  readonly hooks: Exclude<TParseOptions["hooks"], undefined>;
 }>;
 
 export function processParseOptions<T extends AnyTOptions>(
@@ -74,9 +87,11 @@ export function processParseOptions(schemaOpts: ProcessedCreateOptions, parseOpt
     contextualErrorMap: parseOpts?.contextualErrorMap ?? undefined,
     warnOnly: parseOpts?.warnOnly ?? schemaOpts.warnOnly,
     messages: schemaOpts.messages,
+    externalCtx: { ...parseOpts?.context },
+    hooks: { ...parseOpts?.hooks },
   };
 }
 
 export function pickTransferrableOptions(options: AnyTOptions) {
-  return pick(options, ["abortEarly", "schemaErrorMap", "warnOnly", "messages"]);
+  return utils.pick(options, "abortEarly", "schemaErrorMap", "warnOnly", "messages");
 }
