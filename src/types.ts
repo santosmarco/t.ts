@@ -25,8 +25,8 @@ import {
   processParseOptions,
   type ProcessedCreateOptions,
   type TOptions,
-  type TParseOptions,
   type TParseHooks,
+  type TParseOptions,
 } from "./options";
 import {
   TParseContext,
@@ -35,7 +35,7 @@ import {
   type TParseResult,
   type TParseResultOf,
   type TParseResultSyncOf,
-} from "./parse/context";
+} from "./parse";
 import { colorize, show } from "./show";
 import { isNullable, isOptional, isReadonly, type TSpec } from "./spec";
 import {
@@ -53,7 +53,6 @@ import {
   type AtLeastTwo,
   type EnforceOptionalTuple,
   type FilterOut,
-  type Merge,
   type ReadonlyFlat,
   type Try,
   type UnionToTuple,
@@ -4809,6 +4808,10 @@ export const overrideMarker: typeof TOverrideMarker = TMarkers.override;
 
 export const global = () => TGlobal;
 
+export * from "./checks";
+export * from "./error";
+export * from "./issues";
+export * from "./options";
 export {
   anyType as any,
   arrayType as array,
@@ -4875,11 +4878,6 @@ export type inferFormattedError<T extends AnyTType> = TFormattedErrorOf<T>;
 export type inferFlattenedError<T extends AnyTType> = TFlattenedErrorOf<T>;
 
 export type paths<T extends AnyTType> = PathsOf<output<T>>;
-
-export * from "./checks";
-export * from "./error";
-export * from "./issues";
-export * from "./options";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 

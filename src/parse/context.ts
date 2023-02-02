@@ -1,7 +1,7 @@
 import { AbortedParse, TError, resolveErrorMaps } from "../error";
 import { TGlobal } from "../global";
 import { TIssueKind, type TIssue, type TIssueBase } from "../issues";
-import type { ProcessedParseOptions } from "../options";
+import type { ProcessedTParseOptions } from "../options";
 import type { AnyTType } from "../types";
 import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf, type StripKey, type utils } from "../utils";
 import { processParseCtxCommon, type TParseContextCommon } from "./common";
@@ -259,7 +259,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   static readonly createAsync = TParseContext._makeCreate(true);
 
   private static _makeCreate(async: boolean) {
-    return <T extends AnyTType>(t: T, data: unknown, options: ProcessedParseOptions<T["options"]>): TParseContext<T> =>
+    return <T extends AnyTType>(t: T, data: unknown, options: ProcessedTParseOptions<T["options"]>): TParseContext<T> =>
       new TParseContext({ schema: t, data, path: [], parent: null, common: { ...options, async } });
   }
 }

@@ -64,7 +64,7 @@ export type TParseOptions<Ctx extends object = object> = utils.Simplify<
   } & TParseHooks
 >;
 
-export type ProcessedParseOptions<T extends AnyTOptions> = utils.Simplify<{
+export type ProcessedTParseOptions<T extends AnyTOptions> = utils.Simplify<{
   readonly abortEarly: boolean;
   readonly label: string | undefined;
   readonly schemaErrorMap: TErrorMap | undefined;
@@ -78,7 +78,7 @@ export type ProcessedParseOptions<T extends AnyTOptions> = utils.Simplify<{
 export function processParseOptions<T extends AnyTOptions>(
   schemaOpts: ProcessedCreateOptions,
   parseOpts: TParseOptions | undefined
-): ProcessedParseOptions<T>;
+): ProcessedTParseOptions<T>;
 export function processParseOptions(schemaOpts: ProcessedCreateOptions, parseOpts: TParseOptions | undefined) {
   return {
     abortEarly: parseOpts?.abortEarly ?? schemaOpts.abortEarly,

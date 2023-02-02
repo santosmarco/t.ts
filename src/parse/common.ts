@@ -1,10 +1,10 @@
-import type { AnyTType, ProcessedParseOptions } from "../types";
+import type { AnyTType, ProcessedTParseOptions } from "../types";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                 TParseContextCommon                                                */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TParseContextCommon<T extends AnyTType> = ProcessedParseOptions<T["options"]> & {
+export type TParseContextCommon<T extends AnyTType> = ProcessedTParseOptions<T["options"]> & {
   readonly async: boolean;
 };
 
