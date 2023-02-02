@@ -1,4 +1,4 @@
-import type { AnyTType, InputOf, OutputOf } from "./types";
+import type { AnyTType } from "./types";
 import { ValueKind, isKindOf, type utils } from "./utils";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -22,7 +22,7 @@ export type TManifestExamples<$O, $I> = utils.Simplify<{
   readonly out?: ReadonlyArray<DescriptiveWithValue<$O>>;
 }>;
 
-export type TManifest<$O, $I = $O> = utils.Simplify<
+export type TManifest<$O, $I> = utils.Simplify<
   Descriptive & {
     readonly examples?: TManifestExamples<$O, $I>;
     readonly tags?: ReadonlyArray<DescriptiveWithValue<string>>;
@@ -32,9 +32,9 @@ export type TManifest<$O, $I = $O> = utils.Simplify<
   }
 >;
 
-export type AnyTManifest = TManifest<any>;
+export type AnyTManifest = TManifest<any, any>;
 
-export type TManifestOf<T extends AnyTType> = TManifest<OutputOf<T>, InputOf<T>>;
+export type TManifestOf<T extends AnyTType> = TManifest<T["$O"], T["$I"]>;
 
 export function parseMaybeDescriptive(maybeDescriptive: string | DescriptiveWithValue<string>) {
   if (isKindOf(maybeDescriptive, ValueKind.String)) {
