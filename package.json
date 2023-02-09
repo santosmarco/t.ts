@@ -30,6 +30,7 @@
   "dependencies": {
     "@hookform/resolvers": "^2.9.10",
     "joi": "^17.7.0",
+    "nanoid": "3.3.4",
     "react": "^18.2.0",
     "react-hook-form": "^7.43.0",
     "tslib": "^2.5.0"

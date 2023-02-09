@@ -5,7 +5,7 @@ import type { ProcessedTParseOptions } from "../options";
 import type { AnyTType } from "../types";
 import { ValueKind, conditionalOmitKindDeep, isKindOf, kindOf, type StripKey, type utils } from "../utils";
 import { processParseCtxCommon, type TParseContextCommon } from "./common";
-import { createParseCtxHooksDispatcher, type TParseContextHooksDispatcher } from "./hooks";
+import { createParseCtxHookDispatcher, type TParseContextHookDispatcher } from "./hooks";
 import { TParseResult, type TParseResultSyncOf } from "./result";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -50,7 +50,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   private readonly _issues: TIssue[];
   private readonly _warnings: TIssue[];
 
-  private readonly _dispatcher: TParseContextHooksDispatcher;
+  private readonly _dispatcher: TParseContextHookDispatcher;
 
   private constructor(def: TParseContextDef<T>) {
     const { schema, data, path, parent, common } = def;
@@ -67,7 +67,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     this._issues = [];
     this._warnings = [];
 
-    this._dispatcher = createParseCtxHooksDispatcher(this);
+    this._dispatcher = createParseCtxHookDispatcher(this);
   }
 
   get status(): TParseContextStatus {
@@ -130,6 +130,7 @@ export class TParseContext<T extends AnyTType = AnyTType> {
     if (!this.parent) {
       return this.status === TParseContextStatus.Valid && this.allIssues.length === 0;
     }
+
     return this.parent.valid;
   }
 
@@ -139,17 +140,22 @@ export class TParseContext<T extends AnyTType = AnyTType> {
   }
 
   invalidate(): this {
-    this._dispatcher.onInvalidate();
-    if (!this.valid) {
+    const action = this._dispatcher.onInvalidate();
+
+    if (!this.valid || action?.prevent) {
       return this;
     }
+
     this._status = TParseContextStatus.Invalid;
+
     this.parent?.invalidate();
+
     return this;
   }
 
   child<U extends AnyTType>(schema: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
     const processedCommon = processParseCtxCommon(schema, this.common);
+
     const child = new TParseContext({
       schema,
       data,
@@ -157,24 +163,25 @@ export class TParseContext<T extends AnyTType = AnyTType> {
       parent: this,
       common: processedCommon,
     });
+
     this._children.push(child);
+
     return child;
   }
 
   clone<U extends AnyTType>(schema: U, data: unknown, path: TParseContextPath = []): TParseContext<U> {
     const processedCommon = processParseCtxCommon(schema, this.common);
-    return new TParseContext({ schema, data, path: [...this.path, ...path], parent: null, common: processedCommon });
+
+    return new TParseContext({
+      schema,
+      data,
+      path: [...this.path, ...path],
+      parent: null,
+      common: processedCommon,
+    });
   }
 
   addIssue(issue: TParseContextIssueData, message: string | undefined): this {
-    if (!this.common.warnOnly) {
-      if (this.valid) {
-        this.invalidate();
-      } else if (this.common.abortEarly) {
-        return this;
-      }
-    }
-
     const locale = TGlobal.getLocale();
     const globalErrorMap = TGlobal.getErrorMap();
 
@@ -204,12 +211,24 @@ export class TParseContext<T extends AnyTType = AnyTType> {
 
     const fullIssue = { ...partialIssue, message: issueMsg };
 
+    const action = this._dispatcher[this.common.warnOnly ? "onWarning" : "onIssue"]?.(fullIssue);
+
+    if (action?.prevent) {
+      return this;
+    }
+
+    if (!this.common.warnOnly) {
+      if (this.valid) {
+        this.invalidate();
+      } else if (this.common.abortEarly) {
+        return this;
+      }
+    }
+
     if (this.common.warnOnly) {
       this._warnings.push(fullIssue);
-      this._dispatcher.onWarning?.(fullIssue);
     } else {
       this._issues.push(fullIssue);
-      this._dispatcher.onIssue?.(fullIssue);
     }
 
     return this;

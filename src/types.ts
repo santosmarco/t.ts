@@ -167,11 +167,11 @@ export abstract class TType<Def extends AnyTDef = AnyTDef> {
 
   constructor(
     def: {
-      readonly typeName: Def["$TypeName"];
-    } & (Def["$Props"] extends null ? { readonly props?: null } : { readonly props: Def["$Props"] }) &
-      (Def["$Checks"] extends null ? { readonly checks?: null } : { readonly checks: Def["$Checks"] }) & {
-        readonly options: ProcessedCreateOptions<Def["$Options"]>;
-        readonly manifest?: AnyTManifest;
+      typeName: Def["$TypeName"];
+    } & (Def["$Props"] extends null ? { props?: null } : { props: Def["$Props"] }) &
+      (Def["$Checks"] extends null ? { checks?: null } : { checks: Def["$Checks"] }) & {
+        options: ProcessedCreateOptions<Def["$Options"]>;
+        manifest?: AnyTManifest;
       }
   ) {
     const { typeName, props = null, checks = null, options, manifest = {} } = def;

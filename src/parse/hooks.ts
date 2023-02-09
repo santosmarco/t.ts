@@ -2,31 +2,35 @@ import type { TIssue } from "../types";
 import type { TParseContext } from "./context";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
-/*                                                TParseHooksDispatcher                                               */
+/*                                             TParseContextHookDispatcher                                            */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export type TParseContextHooksDispatcher = {
-  onInvalidate(): void;
-  onIssue(issue: TIssue): void;
-  onWarning(issue: TIssue): void;
+export type TParseContextHookReturn = void | {
+  readonly prevent?: boolean;
 };
 
-export function createParseCtxHooksDispatcher(ctx: TParseContext): TParseContextHooksDispatcher {
+export type TParseContextHookDispatcher = {
+  onInvalidate(): TParseContextHookReturn;
+  onIssue(issue: TIssue): TParseContextHookReturn;
+  onWarning(issue: TIssue): TParseContextHookReturn;
+};
+
+export function createParseCtxHookDispatcher(ctx: TParseContext): TParseContextHookDispatcher {
   const {
     common: { hooks, externalCtx },
   } = ctx;
 
   return {
-    onInvalidate() {
-      hooks.onInvalidate?.(externalCtx, ctx);
+    onInvalidate(): TParseContextHookReturn {
+      return hooks.onInvalidate?.(externalCtx, ctx);
     },
 
-    onIssue(issue) {
-      hooks.onIssue?.(issue, externalCtx, ctx);
+    onIssue(issue): TParseContextHookReturn {
+      return hooks.onIssue?.(issue, externalCtx, ctx);
     },
 
-    onWarning(issue) {
-      hooks.onWarning?.(issue, externalCtx, ctx);
+    onWarning(issue): TParseContextHookReturn {
+      return hooks.onWarning?.(issue, externalCtx, ctx);
     },
   };
 }

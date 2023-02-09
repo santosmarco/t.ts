@@ -1,0 +1,31 @@
+{
+  "name": "@t/main",
+  "version": "0.0.0",
+  "description": "",
+  "keywords": [],
+  "license": "MIT",
+  "author": "santosmarco",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --watch --format esm,cjs --dts",
+    "play": "tsx watch _playground.ts"
+  },
+  "dependencies": {
+    "nanoid": "3.3.4"
+  },
+  "devDependencies": {
+    "@t/locale": "*",
+    "@t/options": "*",
+    "@t/parse": "*",
+    "@t/tokens": "*",
+    "@t/tsconfig": "*",
+    "@t/utils": "*",
+    "@types/node": "^18.13.0",
+    "tsup": "^6.6.0",
+    "tsx": "^3.12.3",
+    "typescript": "^4.9.5"
+  }
+}

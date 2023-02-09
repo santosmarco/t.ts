@@ -11,16 +11,23 @@ const Person = t
   // .strict()
   .or(t.string().array().readonly(), t.number(), t.never().or(t.never()));
 
-Person.safeParse(
-  {},
-  {
-    hooks: {
-      onIssue(issue, ctx, _ctx) {
-        console.log({ issue, ctx, _ctx });
+console.log(
+  Person.safeParse(
+    {},
+    {
+      hooks: {
+        onIssue(issue, ctx, _ctx) {
+          console.log({ issue });
+          if (ctx.a === 1) {
+            return {
+              prevent: true,
+            };
+          }
+        },
       },
-    },
-    context: {
-      a: 1,
-    },
-  }
+      context: {
+        a: 1,
+      },
+    }
+  )
 );
