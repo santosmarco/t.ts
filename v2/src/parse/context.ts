@@ -154,6 +154,20 @@ export class TParseContext<Out, In> {
     return child;
   }
 
+  clone<T extends AnyTType>(schema: T, data: unknown, path: TParseContextPath = []): TParseContextOf<T> {
+    const processedCommon = processParseCtxCommon(schema, this.common);
+
+    const clone = new TParseContext({
+      schema,
+      data,
+      path: [...this.path, ...path],
+      parent: null,
+      common: processedCommon,
+    });
+
+    return clone;
+  }
+
   addIssue(issue: TParseContextIssueInput, message: string | undefined) {
     const locale = TGlobal.getLocale();
     const globalErrorMap = TGlobal.getErrorMap();

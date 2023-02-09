@@ -1,26 +1,26 @@
-import { TErrorMap, TIssue, TIssueKind } from "../error";
-import { t } from "../tokens";
+import type { TErrorMap, TIssue, TIssueKind } from "../error";
+import { tokens } from "../tokens";
 import { _ } from "../utils";
 import type { AnyTProcessedOptions } from "./schemaOptions";
 
-export interface TParseHookResult {
+export type TParseHookResult = _.Simplify<{
   readonly prevent?: boolean;
-}
+}>;
 
-export interface TParseHooks<Ctx extends Record<string, unknown>> {
+export type TParseHooks<Ctx extends Record<string, unknown>> = _.Simplify<{
   onInvalidate?(context: Ctx): TParseHookResult | void;
   onIssue?(issue: TIssue, context: Ctx): TParseHookResult | void;
   onWarning?(warning: TIssue, context: Ctx): TParseHookResult | void;
-}
+}>;
 
-export interface TParseOptions<Ctx extends Record<string, unknown>> {
+export type TParseOptions<Ctx extends Record<string, unknown>> = _.Simplify<{
   readonly abortEarly?: boolean;
   readonly context?: Ctx;
   readonly contextualErrorMap?: TErrorMap;
   readonly hooks?: TParseHooks<Ctx>;
   readonly label?: string;
   readonly warnOnly?: boolean;
-}
+}>;
 
 export type TProcessedParseOptions<Ctx extends Record<string, unknown>> = _.BRANDED<
   {
@@ -35,7 +35,7 @@ export type TProcessedParseOptions<Ctx extends Record<string, unknown>> = _.BRAN
     readonly contextualErrorMap: TErrorMap | undefined;
     readonly hooks: TParseHooks<Ctx>;
   },
-  typeof t.PROCESSED_PARSE_OPTIONS
+  typeof tokens.PROCESSED_PARSE_OPTIONS
 >;
 
 export type AnyTProcessedParseOptions = TProcessedParseOptions<Record<string, unknown>>;
@@ -51,6 +51,6 @@ export function processParseOptions<Ctx extends Record<string, unknown>>(
       contextualErrorMap: parseOptions.contextualErrorMap,
       hooks: parseOptions.hooks ?? {},
     },
-    t.PROCESSED_PARSE_OPTIONS
+    tokens.PROCESSED_PARSE_OPTIONS
   );
 }

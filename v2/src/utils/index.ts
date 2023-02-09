@@ -1,9 +1,9 @@
-import { t } from "../tokens";
+import { tokens } from "../tokens";
 import type { tt } from "../types";
 import { ValueKind, kindOf } from "./kind-of";
 
 export namespace _ {
-  type _BuiltIn =
+  export type BuiltIn =
     | { readonly [Symbol.toStringTag]: string }
     | { readonly [tt]: true }
     | Date
@@ -17,13 +17,27 @@ export namespace _ {
 
   export type Equals<T, U> = (<X>() => X extends T ? 1 : 0) extends <Y>() => Y extends U ? 1 : 0 ? 1 : 0;
 
-  export type Simplify<T> = T extends _BuiltIn ? T : Equals<T, unknown> extends 1 ? T : { [K in keyof T]: T[K] } & {};
-
-  export type ReadonlyDeep<T> = T extends _BuiltIn
+  export type Simplify<T> = T extends BuiltIn ? T : Equals<T, unknown> extends 1 ? T : { [K in keyof T]: T[K] } & {};
+  export type SimplifyDeep<T> = T extends BuiltIn
     ? T
     : Equals<T, unknown> extends 1
     ? T
-    : { readonly [K in keyof T]: ReadonlyDeep<T[K]> };
+    : { [K in keyof T]: SimplifyDeep<T[K]> } & {};
+
+  export function simplify<T>(value: T): Simplify<T>;
+  export function simplify(value: unknown) {
+    return value;
+  }
+
+  export type ReadonlyDeep<T> = T extends BuiltIn
+    ? T
+    : Equals<T, unknown> extends 1
+    ? T
+    : { readonly [K in keyof T]: ReadonlyDeep<T[K]> } & {};
+
+  export function readonly<T>(value: T): Readonly<T> {
+    return Object.freeze(value);
+  }
 
   export type Merge<T, U> = Omit<T, keyof U> & U;
 
@@ -32,55 +46,26 @@ export namespace _ {
   }
 
   export type Except<T, K extends keyof T> = Omit<T, K>;
-
   export type StripKey<T, K extends keyof T> = T extends unknown ? Except<T, K> : never;
 
-  export type Promisable<T> = T | PromiseLike<T>;
+  export type AssertArray<T> = T extends readonly unknown[] ? T : [T];
 
-  export type Join<T extends readonly string[], D extends string> = T extends readonly [
-    infer H extends string,
-    ...infer R
-  ]
-    ? R extends readonly []
-      ? H
-      : R extends readonly string[]
-      ? `${H}${D}${Join<R, D>}`
-      : never
-    : never;
-
-  export function join<T extends readonly [string, ...string[]], D extends string>(values: T, delimiter: D): Join<T, D>;
-  export function join(values: readonly string[], delimiter: string) {
-    return values.join(delimiter);
+  export function assertArray<T>(value: T): AssertArray<T>;
+  export function assertArray(value: unknown) {
+    return kindOf(value) === ValueKind.Array ? value : [value];
   }
 
-  export type FilterOutDuplicates<T extends readonly unknown[]> = T extends readonly [infer H, ...infer R]
-    ? R extends readonly []
-      ? T
-      : R extends readonly unknown[]
-      ? H extends R[number]
-        ? FilterOutDuplicates<R>
-        : [H, ...FilterOutDuplicates<R>]
-      : never
-    : never;
-
-  export function filterOutDuplicates<T extends readonly [unknown, ...unknown[]]>(values: T): FilterOutDuplicates<T>;
-  export function filterOutDuplicates(values: readonly unknown[]) {
-    return values.filter((v, i) => values.indexOf(v) === i);
+  export function uniq<T extends readonly unknown[]>(arr: T): T;
+  export function uniq(arr: readonly unknown[]) {
+    return arr.filter((v, i) => arr.indexOf(v) === i);
   }
 
-  export function simplify<T>(value: T): Simplify<T>;
-  export function simplify(value: unknown) {
-    return value;
-  }
+  export type OptionalKeys<T> = { [K in keyof T]: undefined extends T[K] ? K : never }[keyof T];
+  export type RequiredKeys<T> = Exclude<keyof T, OptionalKeys<T>>;
+  export type EnforceOptional<T> = Pick<T, RequiredKeys<T>> & Partial<Pick<T, OptionalKeys<T>>>;
 
-  type _Narrow<T> =
-    | (T extends [] ? [] : never)
-    | (T extends string | number | bigint | boolean ? T : never)
-    | { [K in keyof T]: T[K] extends Function ? T[K] : _Narrow<T[K]> };
-  export type Narrow<T> = T extends [] ? T : _Narrow<T>;
-
-  export type BRANDED<T, B> = T & { readonly [t.BRAND]: B };
-  export type UNBRANDED<T> = Omit<T, t.BRAND>;
+  export type BRANDED<T, B> = T & { readonly [tokens.BRAND]: B };
+  export type UNBRANDED<T> = Omit<T, tokens.BRAND>;
 
   export function enbrand<T, B>(value: T, _brand: Narrow<B>): BRANDED<T, B>;
   export function enbrand(value: unknown) {
@@ -92,13 +77,20 @@ export namespace _ {
     return value;
   }
 
+  type _Narrow<T> =
+    | (T extends [] ? [] : never)
+    | (T extends string | number | bigint | boolean ? T : never)
+    | { [K in keyof T]: T[K] extends Function ? T[K] : _Narrow<T[K]> };
+  export type Narrow<T> = T extends [] ? T : _Narrow<T>;
+
   export function asConst<T>(value: Narrow<T>): ReadonlyDeep<T>;
   export function asConst(value: unknown) {
     return value;
   }
 
-  export function extractProp<T, P extends keyof T>(value: T, prop: P): T[P] {
-    return value[prop];
+  export function widen<T>(value: Narrow<T>): T;
+  export function widen(value: unknown) {
+    return value;
   }
 
   export function sanitizeDeep<T extends object>(value: T): T;
@@ -114,3 +106,4 @@ export namespace _ {
 }
 
 export * from "./kind-of";
+export * from "./print-value";

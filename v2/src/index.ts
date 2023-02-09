@@ -1,9 +1,3 @@
-import * as t from './types'
-
-export * from './def'
-export * from './typeNames'
-export * from './types'
-
-export { t }
-
-export default t
+import * as t from "./_external";
+export { t };
+export default t;

@@ -1,5 +1,5 @@
 import { TErrorMap, TIssueKind } from "../error";
-import { t } from "../tokens";
+import { tokens } from "../tokens";
 import { _ } from "../utils";
 
 export type TOptions<AdditionalIssueMsgs extends readonly TIssueKind[] = []> = _.ReadonlyDeep<{
@@ -22,7 +22,7 @@ export type TProcessedOptions<T extends AnyTOptions> = _.BRANDED<
     warnOnly: boolean;
     messages: NonNullable<T["messages"]>;
   }>,
-  t.PROCESSED_OPTIONS
+  tokens.PROCESSED_OPTIONS
 >;
 
 export type AnyTProcessedOptions = TProcessedOptions<AnyTOptions>;
@@ -42,6 +42,6 @@ export function processCreateOptions({
       warnOnly,
       messages,
     },
-    t.PROCESSED_OPTIONS
+    tokens.PROCESSED_OPTIONS
   );
 }
