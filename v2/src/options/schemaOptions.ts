@@ -1,13 +1,13 @@
-import { TErrorMap, TIssueKind } from "../error";
+import type { TErrorMap, TIssueKind } from "../error";
 import { tokens } from "../tokens";
 import { _ } from "../utils";
 
-export type TOptions<AdditionalIssueMsgs extends readonly TIssueKind[] = []> = _.ReadonlyDeep<{
+export type TOptions<AddtlIssues extends readonly TIssueKind[] = []> = _.ReadonlyDeep<{
   abortEarly?: boolean;
   label?: string;
   schemaErrorMap?: TErrorMap;
   warnOnly?: boolean;
-  messages?: { [K in TIssueKind.Base.Required | TIssueKind.Base.InvalidType | AdditionalIssueMsgs[number]]?: string };
+  messages?: { [K in TIssueKind.Base.Required | TIssueKind.Base.InvalidType | AddtlIssues[number]]?: string };
 }>;
 
 export type AnyTOptions = TOptions<readonly TIssueKind[]>;
@@ -27,13 +27,13 @@ export type TProcessedOptions<T extends AnyTOptions> = _.BRANDED<
 
 export type AnyTProcessedOptions = TProcessedOptions<AnyTOptions>;
 
-export function processCreateOptions({
+export function processCreateOptions<T extends AnyTOptions>({
   abortEarly = false,
-  label = undefined,
-  schemaErrorMap = undefined,
+  label,
+  schemaErrorMap,
   warnOnly = false,
   messages = {},
-}: AnyTOptions = {}): TProcessedOptions<AnyTOptions> {
+}: T = {}): TProcessedOptions<T> {
   return _.enbrand(
     {
       abortEarly,
