@@ -1,6 +1,6 @@
 import type { TOptions, TProcessedOptions } from "./options";
 import type { TTypeName } from "./typeNames";
-import { _ } from "./utils";
+import type { _ } from "./utils";
 
 export interface TDef<T extends TTypeName> {
   readonly typeName: T;
@@ -9,11 +9,11 @@ export interface TDef<T extends TTypeName> {
 
 export type AnyTDef = TDef<TTypeName>;
 
-export type TDefInput<T extends AnyTDef> = {
+export type TCtorDef<T extends AnyTDef> = {
   readonly typeName: T["typeName"];
   readonly options: TProcessedOptions<T["options"]>;
 } & _.Except<T, "typeName" | "options">;
 
-export type InternalTDef<T extends AnyTDef> = TDefInput<T> & {
+export type TInternalDef<T extends AnyTDef> = TCtorDef<T> & {
   readonly id: string;
 };
