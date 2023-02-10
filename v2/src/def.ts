@@ -12,7 +12,7 @@ export type AnyTDef = TDef<TTypeName>;
 export type TCtorDef<T extends AnyTDef> = {
   readonly typeName: T["typeName"];
   readonly options: TProcessedOptions<T["options"]>;
-} & _.Except<T, "typeName" | "options">;
+} & _.Except<T, keyof AnyTDef>;
 
 export type TInternalDef<T extends AnyTDef> = TCtorDef<T> & {
   readonly id: string;
