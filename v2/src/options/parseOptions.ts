@@ -30,8 +30,8 @@ export type TProcessedParseOptions<Ctx extends Record<string, unknown>> = _.BRAN
     readonly schemaErrorMap: TErrorMap | undefined;
     readonly warnOnly: boolean;
     readonly messages: Partial<Record<TIssueKind, string>>;
-    // From parse options
-    readonly externalCtx: Ctx;
+    // From parse options only
+    readonly externalContext: Ctx;
     readonly contextualErrorMap: TErrorMap | undefined;
     readonly hooks: TParseHooks<Ctx>;
   },
